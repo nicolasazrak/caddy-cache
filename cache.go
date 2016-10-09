@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"fmt"
 	"gopkg.in/redis.v4"
-	"encoding/json"
+	"gopkg.in/vmihailenco/msgpack.v2"
 	"time"
 )
 
@@ -68,22 +68,24 @@ func parse(c *caddy.Controller) ([]Rule, error) {
 
 type CachedResponse struct {
 	Code      int           // the HTTP response code from WriteHeader
-	Body      string
+	Body      []byte
 	HeaderMap http.Header   // the HTTP response headers
 }
 
 
-func respond(cached * CachedResponse, w http.ResponseWriter, addCachedHeader bool) {
+func respond(cached * CachedResponse, w http.ResponseWriter, wasCached bool) {
 	for k, vs := range cached.HeaderMap {
 		for _, v := range vs {
-			// fmt.Println("key=", k, "value=", v)
+			// make-fmt.Println("key=", k, "value=", v)
 			w.Header().Add(k, v)
 		}
 	}
-	if addCachedHeader {
-		w.Header().Add("cached", "1")
+	if wasCached {
+		w.Header().Add("cache-status", "HIT")
+	} else {
+		w.Header().Add("cache-status", "MISS")
 	}
-	w.Write([]byte(cached.Body))
+	w.Write(cached.Body)
 	w.WriteHeader(cached.Code)
 }
 
@@ -99,12 +101,12 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 		status, err := h.Next.ServeHTTP(rec, r)
 
 		cached := CachedResponse {
-			Body: string(rec.Body.Bytes()),
+			Body: rec.Body.Bytes(),
 			HeaderMap: rec.HeaderMap,
 			Code: rec.Code,
 		}
 
-		serialized, err := json.Marshal(cached)
+		serialized, err := msgpack.Marshal(cached)
 
 		if err != nil {
 			return 500, nil
@@ -119,7 +121,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 		return status, err
 	} else {
 		cached := CachedResponse{}
-		json.Unmarshal([]byte(val), &cached)
+		msgpack.Unmarshal([]byte(val), &cached)
 		respond(&cached, w, true)
 		return cached.Code, nil
 	}
