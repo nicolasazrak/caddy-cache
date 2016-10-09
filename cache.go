@@ -1,70 +1,22 @@
 package cache
 
 import (
-	"net/http"
-
-	"github.com/mholt/caddy/caddyhttp/httpserver"
-	"github.com/mholt/caddy"
-	"net/http/httptest"
 	"fmt"
+	"time"
+	"net/http"
+	"net/http/httptest"
 	"gopkg.in/redis.v4"
 	"gopkg.in/vmihailenco/msgpack.v2"
-	"time"
+	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
 
-type Rule struct {
-	Path    string
-}
+
 
 type CacheHandler struct {
-	Rules []Rule
-	Next  httpserver.Handler
+	Client *redis.Client
+	Next   httpserver.Handler
 }
 
-func init() {
-	fmt.Println("Init!")
-	httpserver.RegisterDevDirective("cache", "root")
-	caddy.RegisterPlugin("cache", caddy.Plugin{
-		ServerType: "http",
-		Action:     Setup,
-	})
-}
-
-var client *redis.Client
-
-func Setup(c *caddy.Controller) error {
-	rules, err := parse(c)
-	if err != nil {
-		return err
-	}
-
-	c.OnStartup(func() error {
-		return nil
-	})
-
-	client = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-
-	cfg := httpserver.GetConfig(c)
-	mid := func(next httpserver.Handler) httpserver.Handler {
-		return CacheHandler{
-			Rules: rules,
-			Next: next,
-		}
-	}
-	cfg.AddMiddleware(mid)
-
-	return nil
-}
-
-
-func parse(c *caddy.Controller) ([]Rule, error) {
-	return []Rule{}, nil
-}
 
 type CachedResponse struct {
 	Code      int           // the HTTP response code from WriteHeader
@@ -91,8 +43,9 @@ func respond(cached * CachedResponse, w http.ResponseWriter, wasCached bool) {
 
 
 func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
-	val, err := client.Get(r.URL.Path).Result()
+	val, err := h.Client.Get(r.URL.Path).Result()
 	if err != nil && err != redis.Nil {
+		fmt.Println(err)
 		return 500, err
 	}
 
@@ -112,7 +65,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			return 500, nil
 		}
 
-		err = client.Set(r.URL.Path, serialized, time.Duration(5) * time.Minute).Err()
+		err = h.Client.Set(r.URL.Path, serialized, time.Duration(5) * time.Minute).Err()
 		if err != nil {
 			return 500, err
 		}
