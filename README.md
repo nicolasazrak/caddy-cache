@@ -3,7 +3,7 @@
 [![Build Status](https://travis-ci.org/nicolasazrak/caddy-cache.svg?branch=master)](https://travis-ci.org/nicolasazrak/caddy-cache)
 
 
-This is a simple caching plugin for [caddy server](https://caddyserver.com/) backed by redis.
+This is a simple caching plugin for [caddy server](https://caddyserver.com/) backed by redis or an in memory store.
 
 To use it you need to compile your own version of caddy with this plugin like [this doc](https://github.com/mholt/caddy/wiki/Writing-a-Plugin:-Directives). 
  
@@ -16,6 +16,7 @@ caddy.test {
 }
 ```
 
+If you don't add redis path, the in memory storage will be used. To cache pages only add `Cache-control` header to your pages.
 
 ### Todo list
 

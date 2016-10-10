@@ -87,7 +87,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 	cached, err := h.Client.Get(getKey(r))
 	if err != nil {
-		return 500, err
+		return http.StatusInternalServerError, err
 	}
 
 	if cached == nil {
@@ -105,7 +105,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 			err = h.Client.Set(getKey(r), &response, getTTL(cacheableStatus))
 			if err != nil {
-				return 500, err
+				return http.StatusInternalServerError, err
 			}
 		}
 

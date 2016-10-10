@@ -16,23 +16,10 @@ func init() {
 }
 
 func Setup(c *caddy.Controller) error {
-	redisURL, err := getRedisURL(c)
-	if err != nil {
-		return err
-	}
-
-	c.OnStartup(func() error {
-		fmt.Println("Cache initialized")
-		return nil
-	})
-
 	handler := CacheHandler{}
-	handler.Client = &storage.RedisStorage {
-		URL: redisURL,
-	}
+	handler.Client = getHandler(c)
 
-	err = handler.Client.Setup()
-
+	err := handler.Client.Setup()
 	if err != nil {
 		return err
 	}
@@ -42,16 +29,21 @@ func Setup(c *caddy.Controller) error {
 		return handler
 	})
 
+	c.OnStartup(func() error {
+		fmt.Println("Cache initialized")
+		return nil
+	})
+
 	return nil
 }
 
 
-func getRedisURL(c *caddy.Controller) (string, error) {
+func getHandler(c *caddy.Controller) (storage.Storage) {
 	c.Next() // Skip cache directive
 
-	if !c.NextArg() {       // expect at least one value
-		return "", c.ArgErr()   // otherwise it's an error
+	if !c.NextArg() {
+		return &storage.MemoryStorage{}
 	}
 
-	return c.Val(), nil
+	return &storage.RedisStorage{ URL: c.Val() }
 }

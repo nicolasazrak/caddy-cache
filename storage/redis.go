@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"gopkg.in/vmihailenco/msgpack.v2"
 	"gopkg.in/redis.v4"
 	"time"
 	"errors"
@@ -24,13 +23,11 @@ func (s *RedisStorage) Get(key string) (*CachedResponse, error) {
 	if cached == "" {
 		return nil, nil
 	}
-	cache := CachedResponse{}
-	msgpack.Unmarshal([]byte(cached), &cache)
-	return &cache, nil
+	return unmarshall([]byte(cached))
 }
 
 func (s *RedisStorage) Set(key string, cached * CachedResponse, expiration time.Duration) error {
-	nextCache, err := msgpack.Marshal(cached)
+	nextCache, err := marshal(cached)
 	if err != nil {
 		return err
 	}
