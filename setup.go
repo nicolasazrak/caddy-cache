@@ -2,12 +2,9 @@ package cache
 
 import (
 	"fmt"
-	"gopkg.in/redis.v4"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 	"github.com/mholt/caddy"
-	"errors"
-	"net/url"
-	"strconv"
+	"github.com/nicolasazrak/caddy-cache/storage"
 )
 
 func init() {
@@ -19,7 +16,7 @@ func init() {
 }
 
 func Setup(c *caddy.Controller) error {
-	redisOptions, err := parseOptions(c)
+	redisURL, err := getRedisURL(c)
 	if err != nil {
 		return err
 	}
@@ -30,11 +27,14 @@ func Setup(c *caddy.Controller) error {
 	})
 
 	handler := CacheHandler{}
-	handler.Client = redis.NewClient(redisOptions)
+	handler.Client = &storage.RedisStorage {
+		URL: redisURL,
+	}
 
-	_, err = handler.Client.Ping().Result()
+	err = handler.Client.Setup()
+
 	if err != nil {
-		return errors.New("Could not connect to redis server for cache")
+		return err
 	}
 
 	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
@@ -45,50 +45,13 @@ func Setup(c *caddy.Controller) error {
 	return nil
 }
 
-func parseRedisURL(redisURL string) (*redis.Options, error) {
-	parsed, err := url.Parse(redisURL)
 
-	if err != nil {
-		return nil, errors.New("Invalid redis url for cache")
-	}
-
-	if parsed.Scheme != "redis" {
-		return nil, errors.New("Invalid " + parsed.Scheme + " protocol, it should be redis://")
-	}
-
-	db := 0
-	if parsed.Path != "" {
-		dbFromURl, err := strconv.Atoi(parsed.Path);
-		if err == nil {
-			return nil, errors.New("Invalid redis database, it must be a valid number")
-		}
-		db = dbFromURl
-	}
-
-	password := ""
-	if parsed.User != nil {
-		pwFromUrl, isSet := parsed.User.Password()
-		if isSet {
-			password = pwFromUrl
-		}
-	}
-
-	return &redis.Options{
-		Addr:     parsed.Host,
-		Password: password,
-		DB:       db,
-	}, nil
-}
-
-
-func parseOptions(c *caddy.Controller) (*redis.Options, error) {
+func getRedisURL(c *caddy.Controller) (string, error) {
 	c.Next() // Skip cache directive
 
 	if !c.NextArg() {       // expect at least one value
-		return nil, c.ArgErr()   // otherwise it's an error
+		return "", c.ArgErr()   // otherwise it's an error
 	}
 
-	redisURL := c.Val()
-
-	return parseRedisURL(redisURL)
+	return c.Val(), nil
 }

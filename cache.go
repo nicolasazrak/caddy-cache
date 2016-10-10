@@ -1,32 +1,23 @@
 package cache
 
 import (
-	"fmt"
 	"time"
 	"net/http"
 	"net/http/httptest"
-	"gopkg.in/redis.v4"
-	"gopkg.in/vmihailenco/msgpack.v2"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 	"github.com/pquerna/cachecontrol/cacheobject"
+	"github.com/nicolasazrak/caddy-cache/storage"
 )
 
 
 
 type CacheHandler struct {
-	Client *redis.Client
+	Client storage.Storage
 	Next   httpserver.Handler
 }
 
 
-type CachedResponse struct {
-	Code      int           // the HTTP response code from WriteHeader
-	Body      []byte
-	HeaderMap http.Header   // the HTTP response headers
-}
-
-
-func respond(response * CachedResponse, w http.ResponseWriter) {
+func respond(response * storage.CachedResponse, w http.ResponseWriter) {
 	for k, vs := range response.HeaderMap {
 		for _, v := range vs {
 			// make-fmt.Println("key=", k, "value=", v)
@@ -36,7 +27,6 @@ func respond(response * CachedResponse, w http.ResponseWriter) {
 	w.Write(response.Body)
 	w.WriteHeader(response.Code)
 }
-
 
 func shouldUseCache(r *http.Request) bool {
 	if r.Method != "GET" && r.Method != "HEAD" {
@@ -88,23 +78,23 @@ func getKey(r *http.Request) string {
 	return "contentcache:" + r.Host + ":" + r.Method + ":" + r.URL.Path
 }
 
+
 func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 
 	if !shouldUseCache(r) {
 		return h.Next.ServeHTTP(w, r)
 	}
 
-	cached, err := h.Client.Get(getKey(r)).Result()
-	if err != nil && err != redis.Nil {
-		fmt.Println(err)
+	cached, err := h.Client.Get(getKey(r))
+	if err != nil {
 		return 500, err
 	}
 
-	if err == redis.Nil {
+	if cached == nil {
 		rec := httptest.NewRecorder()
 		status, err := h.Next.ServeHTTP(rec, r)
 
-		response := CachedResponse {
+		response := storage.CachedResponse {
 			Body: rec.Body.Bytes(),
 			HeaderMap: rec.HeaderMap,
 			Code: rec.Code,
@@ -112,13 +102,8 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 		cacheableStatus := getCacheableStatus(r, rec)
 		if isCacheable(cacheableStatus) {
-			nextCache, err := msgpack.Marshal(response)
 
-			if err != nil {
-				return 500, nil
-			}
-
-			err = h.Client.Set(getKey(r), nextCache, getTTL(cacheableStatus)).Err()
+			err = h.Client.Set(getKey(r), &response, getTTL(cacheableStatus))
 			if err != nil {
 				return 500, err
 			}
@@ -127,9 +112,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 		respond(&response, w)
 		return status, err
 	} else {
-		cache := CachedResponse{}
-		msgpack.Unmarshal([]byte(cached), &cache)
-		respond(&cache, w)
-		return cache.Code, nil
+		respond(cached, w)
+		return cached.Code, nil
 	}
 }
