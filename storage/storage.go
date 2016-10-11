@@ -8,7 +8,7 @@ import (
 
 type Storage interface {
 	Get(key string) (*CachedResponse, error)
-	Set(key string, cached * CachedResponse, expiration time.Duration) error
+	Set(key string, cached * CachedResponse, expiration time.Time) error
 	Setup() error
 }
 

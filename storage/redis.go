@@ -26,12 +26,13 @@ func (s *RedisStorage) Get(key string) (*CachedResponse, error) {
 	return unmarshall([]byte(cached))
 }
 
-func (s *RedisStorage) Set(key string, cached * CachedResponse, expiration time.Duration) error {
+func (s *RedisStorage) Set(key string, cached * CachedResponse, expiration time.Time) error {
 	nextCache, err := marshal(cached)
 	if err != nil {
 		return err
 	}
-	err = s.client.Set(key, nextCache, expiration).Err()
+	ttl := expiration.Sub(time.Now().UTC())
+	err = s.client.Set(key, nextCache, ttl).Err()
 	if err != nil {
 		return err
 	}

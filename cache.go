@@ -20,7 +20,6 @@ type CacheHandler struct {
 func respond(response * storage.CachedResponse, w http.ResponseWriter) {
 	for k, vs := range response.HeaderMap {
 		for _, v := range vs {
-			// make-fmt.Println("key=", k, "value=", v)
 			w.Header().Add(k, v)
 		}
 	}
@@ -67,11 +66,7 @@ func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder) *cach
 }
 
 func isCacheable(rv *cacheobject.ObjectResults) bool {
-	return len(rv.OutReasons) == 0 && getTTL(rv) > 0
-}
-
-func getTTL(rv *cacheobject.ObjectResults) time.Duration {
-	return rv.OutExpirationTime.Sub(time.Now().UTC())
+	return len(rv.OutReasons) == 0 && rv.OutExpirationTime.Sub(time.Now().UTC()) > 0
 }
 
 func getKey(r *http.Request) string {
@@ -103,7 +98,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 		cacheableStatus := getCacheableStatus(r, rec)
 		if isCacheable(cacheableStatus) {
 
-			err = h.Client.Set(getKey(r), &response, getTTL(cacheableStatus))
+			err = h.Client.Set(getKey(r), &response, cacheableStatus.OutExpirationTime)
 			if err != nil {
 				return http.StatusInternalServerError, err
 			}
