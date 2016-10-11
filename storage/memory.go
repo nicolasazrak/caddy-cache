@@ -3,6 +3,7 @@ package storage
 import (
 	"time"
 	"sync"
+	"math"
 	"hash/crc32"
 )
 
@@ -20,12 +21,11 @@ type CacheEntry struct {
 }
 
 func (s *MemoryStorage) getBucketIndexForKey(key string) uint32 {
-	return crc32.ChecksumIEEE([]byte(key)) & bucketsSize
+	return uint32(math.Mod(float64(crc32.ChecksumIEEE([]byte(key))), float64(bucketsSize)))
 }
 
 func (s *MemoryStorage) Get(key string) (*CachedResponse, error) {
 	i := s.getBucketIndexForKey(key)
-
 	s.mutex[i].RLock()
 	defer s.mutex[i].RUnlock()
 

@@ -18,13 +18,13 @@ type CacheHandler struct {
 
 
 func respond(response * storage.CachedResponse, w http.ResponseWriter) {
-	for k, vs := range response.HeaderMap {
-		for _, v := range vs {
-			w.Header().Add(k, v)
+	for k, values := range response.HeaderMap {
+		for _, v := range values {
+			w.Header().Set(k, v)
 		}
 	}
-	w.Write(response.Body)
 	w.WriteHeader(response.Code)
+	w.Write(response.Body)
 }
 
 func shouldUseCache(r *http.Request) bool {
@@ -87,7 +87,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 	if cached == nil {
 		rec := httptest.NewRecorder()
-		status, err := h.Next.ServeHTTP(rec, r)
+		_, err := h.Next.ServeHTTP(rec, r)
 
 		response := storage.CachedResponse {
 			Body: rec.Body.Bytes(),
@@ -97,7 +97,6 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 		cacheableStatus := getCacheableStatus(r, rec)
 		if isCacheable(cacheableStatus) {
-
 			err = h.Client.Set(getKey(r), &response, cacheableStatus.OutExpirationTime)
 			if err != nil {
 				return http.StatusInternalServerError, err
@@ -105,7 +104,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 		}
 
 		respond(&response, w)
-		return status, err
+		return response.Code, err
 	} else {
 		respond(cached, w)
 		return cached.Code, nil
