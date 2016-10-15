@@ -37,7 +37,7 @@ func shouldUseCache(r *http.Request) bool {
 	return true
 }
 
-func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder) *cacheobject.ObjectResults {
+func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder) (bool, time.Time) {
 	reqDir, _ := cacheobject.ParseRequestCacheControl(req.Header.Get("Cache-Control"))
 	resDir, _ := cacheobject.ParseResponseCacheControl(res.Header().Get("Cache-Control"))
 	expiresHeader, _ := http.ParseTime(res.Header().Get("Expires"))
@@ -62,11 +62,8 @@ func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder) *cach
 	rv := cacheobject.ObjectResults{}
 	cacheobject.CachableObject(&obj, &rv)
 	cacheobject.ExpirationObject(&obj, &rv)
-	return &rv
-}
-
-func isCacheable(rv *cacheobject.ObjectResults) bool {
-	return len(rv.OutReasons) == 0 && rv.OutExpirationTime.Sub(time.Now().UTC()) > 0
+	isCacheable := len(rv.OutReasons) == 0 && rv.OutExpirationTime.Sub(time.Now().UTC()) > 0
+	return isCacheable, rv.OutExpirationTime
 }
 
 func getKey(r *http.Request) string {
@@ -95,9 +92,9 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			Code: rec.Code,
 		}
 
-		cacheableStatus := getCacheableStatus(r, rec)
-		if isCacheable(cacheableStatus) {
-			err = h.Client.Set(getKey(r), &response, cacheableStatus.OutExpirationTime)
+		isCacheable, expirationTime := getCacheableStatus(r, rec)
+		if isCacheable {
+			err = h.Client.Set(getKey(r), &response, expirationTime)
 			if err != nil {
 				return http.StatusInternalServerError, err
 			}
