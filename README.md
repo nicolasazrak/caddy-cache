@@ -34,6 +34,24 @@ caddy.test {
 }
 ```
 
+
+### Benchmarks
+
+Benchmark files are in `benchmark` folder. The backend server in the proxy case is [http-server](https://www.npmjs.com/package/http-server). Tests were run on my Lenovo G480 with Intel i3 3220 and 8gb of ram.
+
+Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
+
+
+| File Size            ||                     41kb         ||             |      608kb            ||             |   2.6M                ||   
+| ---                  |       :----:  |    :---:  |  :---: |    ----       |   ----   |   ----   |  :----:        |   ---  |   ---  |
+|                      | **Total time**    | **Average**   | **99%th**  |  **Total time**   |  **Average** | **99%th**    | **Total time**     |  **Average**  | **99%th**  |
+| Proxy + gzip         | 2.758 seconds | 34.472 ms |   63ms | 4.573 seconds | 57.164ms |  105ms   | 11.417 seconds | 142.716ms | 220ms  |
+| Root  + gzip         | 0.268 seconds | 3.346ms   |   8ms  | 0.775 seconds |  9.689ms |   23ms   |  2.458 seconds |  30.729ms |  50ms  |
+| Proxy + gzip + cache | 0.240 seconds | 3.002ms   |   7ms  | 0.743 seconds |  9.292ms |   16ms   |  2.380 seconds |  29.753ms |  35ms  |
+
+
+
+
 ### Todo list
 
 - [ ] Support `vary` header

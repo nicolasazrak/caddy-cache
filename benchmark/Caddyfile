@@ -1,0 +1,18 @@
+caddy.test {
+    tls off
+    gzip
+    proxy / localhost:8080
+}
+
+caddy.test2 {
+    tls off
+    gzip
+    root /home/nico/.go/src/github.com/nicolasazrak/caddy-cache/benchmark
+}
+
+caddy.test3 {
+    tls off
+    gzip
+    proxy / localhost:8080
+    cache /
+}
