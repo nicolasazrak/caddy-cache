@@ -2,6 +2,7 @@ package cache
 
 import (
 	"time"
+	"strings"
 	"net/http"
 	"net/http/httptest"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
@@ -12,6 +13,7 @@ import (
 
 
 type CacheHandler struct {
+	Config *Config
 	Client storage.Storage
 	Next   httpserver.Handler
 }
@@ -27,17 +29,30 @@ func respond(response * storage.CachedResponse, w http.ResponseWriter) {
 	w.Write(response.Body)
 }
 
-func shouldUseCache(r *http.Request) bool {
+func shouldUseCache(r *http.Request, config *Config) bool {
+	// TODO Add more logic like get params, ?nocache=true
+
+
 	if r.Method != "GET" && r.Method != "HEAD" {
 		// Only cache Get and head request
 		return false
 	}
 
-	// Add more logic like get params, ?nocache=true
-	return true
+	// Range responses still not supported
+	if r.Header.Get("accept-ranges") != "" {
+		return false
+	}
+
+	for _, path := range config.CacheablePaths {
+		if strings.HasPrefix(r.URL.Path, path) {
+			return true
+		}
+	}
+
+	return false
 }
 
-func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder) (bool, time.Time) {
+func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder, config *Config) (bool, time.Time) {
 	reqDir, _ := cacheobject.ParseRequestCacheControl(req.Header.Get("Cache-Control"))
 	resDir, _ := cacheobject.ParseResponseCacheControl(res.Header().Get("Cache-Control"))
 	expiresHeader, _ := http.ParseTime(res.Header().Get("Expires"))
@@ -62,8 +77,16 @@ func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder) (bool
 	rv := cacheobject.ObjectResults{}
 	cacheobject.CachableObject(&obj, &rv)
 	cacheobject.ExpirationObject(&obj, &rv)
-	isCacheable := len(rv.OutReasons) == 0 && rv.OutExpirationTime.Sub(time.Now().UTC()) > 0
-	return isCacheable, rv.OutExpirationTime
+
+	isCacheable := len(rv.OutReasons) == 0
+
+	expiration := rv.OutExpirationTime
+	if expiration.Before(time.Now().UTC().Add(time.Duration(1) * time.Second)) {
+		// If expiration is before now use default MaxAge
+		expiration = time.Now().UTC().Add(config.DefaultMaxAge)
+	}
+
+	return isCacheable, expiration
 }
 
 func getKey(r *http.Request) string {
@@ -73,7 +96,7 @@ func getKey(r *http.Request) string {
 
 func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 
-	if !shouldUseCache(r) {
+	if !shouldUseCache(r, h.Config) {
 		return h.Next.ServeHTTP(w, r)
 	}
 
@@ -92,7 +115,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			Code: rec.Code,
 		}
 
-		isCacheable, expirationTime := getCacheableStatus(r, rec)
+		isCacheable, expirationTime := getCacheableStatus(r, rec, h.Config)
 		if isCacheable {
 			err = h.Client.Set(getKey(r), &response, expirationTime)
 			if err != nil {
