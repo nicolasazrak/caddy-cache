@@ -55,6 +55,7 @@ Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
 ### Todo list
 
 - [ ] Support `vary` header
+- [ ] Purge cache entries [#1](https://github.com/nicolasazrak/caddy-cache/issues/1)
 - [ ] Serve stale content if proxy is down
 - [ ] Punch hole cache
 - [ ] File disk storage for larger objects
