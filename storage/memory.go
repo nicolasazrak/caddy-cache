@@ -10,7 +10,6 @@ import (
 const bucketsSize = 256
 
 type MemoryStorage struct {
-	URL string
 	contents [bucketsSize]map[string]CacheEntry
 	mutex [bucketsSize]*sync.RWMutex
 }
