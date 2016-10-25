@@ -22,7 +22,7 @@ type CacheHandler struct {
 func respond(response * storage.CachedResponse, w http.ResponseWriter) {
 	for k, values := range response.HeaderMap {
 		for _, v := range values {
-			w.Header().Set(k, v)
+			w.Header().Add(k, v)
 		}
 	}
 	w.WriteHeader(response.Code)
@@ -31,7 +31,6 @@ func respond(response * storage.CachedResponse, w http.ResponseWriter) {
 
 func shouldUseCache(r *http.Request, config *Config) bool {
 	// TODO Add more logic like get params, ?nocache=true
-
 
 	if r.Method != "GET" && r.Method != "HEAD" {
 		// Only cache Get and head request
@@ -79,7 +78,6 @@ func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder, confi
 	cacheobject.ExpirationObject(&obj, &rv)
 
 	isCacheable := len(rv.OutReasons) == 0
-
 	expiration := rv.OutExpirationTime
 	if expiration.Before(time.Now().UTC().Add(time.Duration(1) * time.Second)) {
 		// If expiration is before now use default MaxAge

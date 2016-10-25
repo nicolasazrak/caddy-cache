@@ -19,20 +19,22 @@ type TestHandler struct {
 
 func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	h.timesCalled = h.timesCalled + 1
-	w.Write(h.ResponseBody)
-	w.WriteHeader(h.ResponseCode)
 	for k, values := range h.ResponseHeaders {
 		for _, v := range values {
-			w.Header().Set(k, v)
+			w.Header().Add(k, v)
 		}
 	}
+	w.WriteHeader(h.ResponseCode)
+	w.Write(h.ResponseBody)
 	return h.ResponseCode, h.ResponseError
 }
 
 func buildBasicHandler(cacheablePaths string) (*CacheHandler, *TestHandler) {
 	memory := storage.MemoryStorage{}
 	memory.Setup()
-	backend := TestHandler{}
+	backend := TestHandler{
+		ResponseCode: 200,
+	}
 
 	return &CacheHandler{
 		Config: &Config {
@@ -53,6 +55,8 @@ func buildGetRequest(path string) *http.Request {
 
 }
 
+
+// TODO avoid code duplication, use r.Run
 func TestBasicCache(t *testing.T) {
 	handler, backend := buildBasicHandler("/assets")
 	rec := httptest.NewRecorder()
@@ -106,7 +110,7 @@ func TestNotCacheableCacheControl(t *testing.T) {
 	handler, backend := buildBasicHandler("/assets")
 	rec := httptest.NewRecorder()
 
-	responseHeaders := make(map[string][]string)
+	responseHeaders := make(http.Header)
 	responseHeaders["Cache-control"] = []string { "private" }
 	backend.ResponseHeaders = responseHeaders
 
@@ -119,6 +123,27 @@ func TestNotCacheableCacheControl(t *testing.T) {
 	}
 
 	assert.Equal(t, 2, backend.timesCalled, "Backend should have been called 2 but it was called", backend.timesCalled)
+}
+
+func TestAddHeaders(t *testing.T) {
+	handler, backend := buildBasicHandler("/assets")
+
+	responseHeaders := make(http.Header)
+	responseHeaders["Content-Type"] = []string { "text/plain; charset=utf-8" }
+	responseHeaders["X-Custom-2"] = []string { "bar", "baz" }
+	responseHeaders["X-Custom"] = []string { "foo", "bar", "baz" }
+	backend.ResponseHeaders = responseHeaders
+
+	req := buildGetRequest("http://somehost.com/assets/1")
+
+	rec := httptest.NewRecorder()
+	_, err := handler.ServeHTTP(rec, req)
+
+	if err != nil {
+		assert.Fail(t, "Error processing request", err)
+	}
+
+	assert.Equal(t, responseHeaders, rec.HeaderMap, "Cache didn't send same headers that backend originally sent")
 }
 
 func TestDefaultCacheTime(t *testing.T) {
