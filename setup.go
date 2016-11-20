@@ -9,7 +9,14 @@ import (
 	"github.com/nicolasazrak/caddy-cache/storage"
 )
 
-const DEFAULTMAXAGE = 60
+const DEFAULT_MAX_AGE = time.Duration(60) * time.Second
+
+type Config struct {
+	CacheRules	[]CacheRule
+	RedisURL       	string
+	DefaultMaxAge  	time.Duration
+}
+
 
 func init() {
 	httpserver.RegisterDevDirective("cache", "root")
@@ -19,11 +26,6 @@ func init() {
 	})
 }
 
-type Config struct {
-	CacheablePaths []string
-	RedisURL       string
-	DefaultMaxAge  time.Duration
-}
 
 func Setup(c *caddy.Controller) error {
 	config, err := cacheParse(c)
@@ -56,28 +58,31 @@ func Setup(c *caddy.Controller) error {
 
 func cacheParse(c *caddy.Controller) (*Config, error) {
 	config := Config{
-		CacheablePaths: []string{},
-		DefaultMaxAge: time.Duration(DEFAULTMAXAGE) * time.Second,
+		CacheRules: []CacheRule{},
+		DefaultMaxAge: DEFAULT_MAX_AGE,
 		RedisURL: "",
 	}
 
-	c.Next()
-	if !c.NextArg() {
-		return nil, c.Err("Missing cache path")
+	c.Next() // Skip "cache" literal
+
+	if len(c.RemainingArgs()) > 1 {
+		return nil, c.Err("Unexpected value " + c.Val())
 	}
 
-	config.CacheablePaths = append(config.CacheablePaths, c.Val())
-
 	for c.NextBlock() {
-			parameter := c.Val()
-			switch parameter {
+		parameter := c.Val()
+		switch parameter {
 
-			case "path":
+			case "match":
 				args := c.RemainingArgs()
-				if len(args) != 1 {
-					return nil, c.Err("Invalid usage of path in cache config.")
+				if len(args) != 0 {
+					return nil, c.Err("Invalid usage of match in cache config.")
 				} else{
-					config.CacheablePaths = append(config.CacheablePaths, args[0])
+					cacheRules, err := parseMatchRules(c)
+					if err != nil {
+						return nil, err
+					}
+					config.CacheRules = cacheRules
 				}
 			case "default_max_age" :
 				args := c.RemainingArgs()
@@ -104,6 +109,45 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 
 	return &config, nil
 }
+
+
+func parseMatchRules(c *caddy.Controller) ([]CacheRule, error) {
+	if c.Next() && c.Val() != "{" {
+		return nil, c.Err("Invalid syntaxo on match directive in cache configuration")
+	}
+
+	rules := []CacheRule{}
+
+	for c.NextBlock() {
+		condition := c.Val()
+		switch condition {
+		case "header":
+			args := c.RemainingArgs()
+			if len(args) < 2 {
+				return nil, c.Err("Invalid number of arguments in header condition of match in cache config.")
+			} else {
+				rules = append(rules, &HeaderCacheRule{
+					Header: args[0],
+					Value: args[1:],
+				})
+			}
+		case "path":
+			args := c.RemainingArgs()
+			if len(args) != 1 {
+				return nil, c.Err("Invalid number of arguments in path condition of match in cache config.")
+			} else{
+				rules = append(rules, &PathCacheRule{
+					Path: args[0],
+				})
+			}
+		default:
+			return nil, c.Err(fmt.Sprintf("Unknown condition %s on match parameter of cache directive", condition))
+		}
+	}
+
+	return rules, nil
+}
+
 
 func getHandler(config *Config) storage.Storage {
 	if config.RedisURL == "" {

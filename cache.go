@@ -2,12 +2,11 @@ package cache
 
 import (
 	"time"
-	"strings"
 	"net/http"
 	"net/http/httptest"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
-	"github.com/pquerna/cachecontrol/cacheobject"
 	"github.com/nicolasazrak/caddy-cache/storage"
+	"github.com/pquerna/cachecontrol"
 )
 
 
@@ -29,62 +28,55 @@ func respond(response * storage.CachedResponse, w http.ResponseWriter) {
 	w.Write(response.Body)
 }
 
-func shouldUseCache(r *http.Request, config *Config) bool {
+func shouldUseCache(req *http.Request, config *Config) bool {
 	// TODO Add more logic like get params, ?nocache=true
 
-	if r.Method != "GET" && r.Method != "HEAD" {
+	if req.Method != "GET" && req.Method != "HEAD" {
 		// Only cache Get and head request
 		return false
 	}
 
 	// Range responses still not supported
-	if r.Header.Get("accept-ranges") != "" {
+	if req.Header.Get("accept-ranges") != "" {
 		return false
 	}
 
-	for _, path := range config.CacheablePaths {
-		if strings.HasPrefix(r.URL.Path, path) {
-			return true
-		}
-	}
-
-	return false
+	return true
 }
 
-func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder, config *Config) (bool, time.Time) {
-	reqDir, _ := cacheobject.ParseRequestCacheControl(req.Header.Get("Cache-Control"))
-	resDir, _ := cacheobject.ParseResponseCacheControl(res.Header().Get("Cache-Control"))
-	expiresHeader, _ := http.ParseTime(res.Header().Get("Expires"))
-	dateHeader, _ := http.ParseTime(res.Header().Get("Date"))
-	lastModifiedHeader, _ := http.ParseTime(res.Header().Get("Last-Modified"))
+func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder, config *Config) (bool, time.Time, error) {
+	reasonsNotToCache, expiration, err := cachecontrol.CachableResponse(req, res.Result(), cachecontrol.Options{})
 
-	obj := cacheobject.Object{
-		RespDirectives:         resDir,
-		RespHeaders:            res.Header(),
-		RespStatusCode:         res.Code,
-		RespExpiresHeader:      expiresHeader,
-		RespDateHeader:         dateHeader,
-		RespLastModifiedHeader: lastModifiedHeader,
-
-		ReqDirectives: reqDir,
-		ReqHeaders:    req.Header,
-		ReqMethod:     req.Method,
-
-		NowUTC: time.Now().UTC(),
+	if err != nil {
+		return false, time.Now(), err
 	}
 
-	rv := cacheobject.ObjectResults{}
-	cacheobject.CachableObject(&obj, &rv)
-	cacheobject.ExpirationObject(&obj, &rv)
+	canBeStored := len(reasonsNotToCache) == 0
 
-	isCacheable := len(rv.OutReasons) == 0
-	expiration := rv.OutExpirationTime
+	if !canBeStored {
+		return false, expiration, nil
+	}
+
+	hasExplicitExpiration := expiration.After(time.Now().UTC())
+
 	if expiration.Before(time.Now().UTC().Add(time.Duration(1) * time.Second)) {
-		// If expiration is before now use default MaxAge
+		// If expiration is not specified or is before now use default MaxAge
 		expiration = time.Now().UTC().Add(config.DefaultMaxAge)
 	}
 
-	return isCacheable, expiration
+	anyCacheRulesMatches := false
+	for _, rule := range config.CacheRules {
+		if rule.matches(req, res) {
+			anyCacheRulesMatches = true
+			break
+		}
+	}
+
+	if err != nil {
+		return false, time.Now(), err
+	}
+
+	return anyCacheRulesMatches || hasExplicitExpiration, expiration, nil
 }
 
 func getKey(r *http.Request) string {
@@ -113,7 +105,12 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			Code: rec.Code,
 		}
 
-		isCacheable, expirationTime := getCacheableStatus(r, rec, h.Config)
+		isCacheable, expirationTime, err := getCacheableStatus(r, rec, h.Config)
+
+		if err != nil {
+			return 500, err
+		}
+
 		if isCacheable {
 			err = h.Client.Set(getKey(r), &response, expirationTime)
 			if err != nil {
