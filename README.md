@@ -20,8 +20,9 @@ This will store in cache responses that specifically have a `Cache-control`, `Ex
 
 For more advanced usages you can use the following parameters: 
 
-- `default_max_age`: You can set the default max age for responses without a `Cache-control` or `Expires` header. (Default: 60 seconds)
-- `match`: You can specify rules to make responses cacheable, if any matches and the response is cacheable by https://tools.ietf.org/html/rfc7234 then it will be stored. Supported options are:
+- `default_max_age:` Sets the default max age for responses without a `Cache-control` or `Expires` header. (Default: 60 seconds)
+- `status_header:` Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit
+- `match:` Sets rules to make responses cacheable, if any matches and the response is cacheable by https://tools.ietf.org/html/rfc7234 then it will be stored. Supported options are:
     - `path`: check if the request starts with this path
     - `header`: checks if the response contains a header with one of the specified values
 
@@ -35,6 +36,7 @@ caddy.test {
             header Content-Type image/jpg image/png
         }
         default_max_age 10
+        status_header X-Cache-Status
     }
 }
 ```
@@ -60,10 +62,10 @@ Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
 ### Todo list
 
 - [x] Support `vary` header
+- [x] Add header with cache status
 - [ ] Purge cache entries [#1](https://github.com/nicolasazrak/caddy-cache/issues/1)
 - [ ] Serve stale content if proxy is down
 - [ ] Punch hole cache
 - [ ] File disk storage for larger objects
-- [ ] Add header with cache status
 - [ ] Do conditional requests to revalidate data
 - [ ] Max entries size

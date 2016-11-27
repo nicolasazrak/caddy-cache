@@ -289,6 +289,35 @@ func TestVaryWithTwoHeaders(t *testing.T) {
 }
 
 
+func TestStatusCacheSkip(t *testing.T) {
+	handler, _ := buildBasicHandler()
+	handler.Config.StatusHeader = "cache-status"
+
+	reqUrl, _ := url.Parse("http://somehost.com/assets/some.jpg")
+	responses, err := makeNRequests(handler, 1, &http.Request{ Method: "POST", URL: reqUrl })
+	assert.NoError(t, err, "Failed doing requests")
+
+	assert.Equal(t, "skip", responses[0].HeaderMap.Get("cache-status"))
+}
+
+func TestStatusCacheHit(t *testing.T) {
+	handler, backend := buildBasicHandler()
+	handler.Config.StatusHeader = "cache-status"
+
+	backend.ResponseHeaders = http.Header{
+		"Cache-control": []string { "public; max-age=3600" },
+	}
+
+	responses, err := makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, "miss", responses[0].HeaderMap.Get("cache-status"))
+
+	responses, err = makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, "hit", responses[0].HeaderMap.Get("cache-status"))
+}
+
+
 func TestDefaultCacheTime(t *testing.T) {
 	// TODO test this
 	// isCacheable, expiration := getCacheableStatus(req, res, config)

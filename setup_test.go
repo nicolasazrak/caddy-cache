@@ -52,6 +52,12 @@ func TestParsingConfig(t *testing.T) {
 			},
 			DefaultMaxAge: DEFAULT_MAX_AGE,
 		}},
+		{"cache {\n status_header X-Custom-Header \n}", false, Config{
+			CacheRules: []CacheRule{},
+			StatusHeader: "X-Custom-Header",
+			DefaultMaxAge: DEFAULT_MAX_AGE,
+		}},
+		{"cache {\n status_header aheader another \n}", true, Config{}}, // status_header with invalid number of parameters
 		{"cache {\n default_max_age anumber \n}", true, Config{}}, // max_age with invalid number
 		{"cache {\n default_max_age 45 morepareters \n}", true, Config{}}, // More parameters
 		{"cache {\n default_max_age \n}", true, Config{}}, // Missing parameters

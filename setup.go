@@ -12,8 +12,9 @@ import (
 const DEFAULT_MAX_AGE = time.Duration(60) * time.Second
 
 type Config struct {
-	CacheRules	[]CacheRule
+	CacheRules		[]CacheRule
 	DefaultMaxAge  	time.Duration
+	StatusHeader	string
 }
 
 
@@ -59,6 +60,7 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 	config := Config{
 		CacheRules: []CacheRule{},
 		DefaultMaxAge: DEFAULT_MAX_AGE,
+		StatusHeader: "",
 	}
 
 	c.Next() // Skip "cache" literal
@@ -92,6 +94,13 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 						return nil, c.Err("Invalid value of default_max_age")
 					}
 					config.DefaultMaxAge = time.Duration(val) * time.Second
+				}
+			case "status_header":
+				args := c.RemainingArgs()
+				if len(args) != 1 {
+					return nil, c.Err("Invalid usage of status_header in cache config.")
+				} else{
+					config.StatusHeader = args[0]
 				}
 			default:
 				return nil, c.Err("Unknown cache parameter: " + parameter)

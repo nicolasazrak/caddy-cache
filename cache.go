@@ -123,9 +123,17 @@ func (h CacheHandler) chooseIfVary(r *http.Request) (func (storage.Value) bool) 
 	}
 }
 
+func (h CacheHandler) AddStatusHeader(w http.ResponseWriter, status string) {
+	if h.Config.StatusHeader != "" {
+		w.Header().Add(h.Config.StatusHeader, status)
+	}
+}
+
 func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	if !shouldUseCache(r) {
-		return h.Next.ServeHTTP(w, r)
+		code, err := h.Next.ServeHTTP(w, r)
+		h.AddStatusHeader(w, "skip")
+		return code, err
 	}
 
 	value, err := h.Client.Get(getKey(r), h.chooseIfVary(r))
@@ -161,11 +169,13 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			}
 		}
 
+		h.AddStatusHeader(w, "miss")
 		respond(response.Response, w)
 		return response.Response.Code, err
 	} else {
 		cached := value.(*CacheEntry)
 		respond(cached.Response, w)
+		h.AddStatusHeader(w, "hit")
 		return cached.Response.Code, nil
 	}
 }
