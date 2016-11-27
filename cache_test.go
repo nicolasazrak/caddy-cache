@@ -49,7 +49,7 @@ func buildBasicHandler() (*CacheHandler, *TestHandler) {
 	}, &backend
 }
 
-func buildGetRequest(path string) *http.Request {
+func buildGetRequestWithHeaders(path string, headers http.Header) *http.Request {
 	reqUrl, err := url.Parse(path)
 	if err != nil {
 		panic(fmt.Sprintf("Invalid url %s in test", path))
@@ -57,8 +57,12 @@ func buildGetRequest(path string) *http.Request {
 	return &http.Request{
 		Method: "GET",
 		URL: reqUrl,
+		Header: headers,
 	}
+}
 
+func buildGetRequest(path string) *http.Request {
+	return buildGetRequestWithHeaders(path, http.Header{})
 }
 
 func makeNRequests(handler *CacheHandler, n int, req *http.Request) ([]*httptest.ResponseRecorder, error){
@@ -210,6 +214,78 @@ func TestCacheByHeaders(t *testing.T) {
 	_, err = makeNRequests(handler, 10, buildGetRequest("http://somehost.com/another_not_cached_path/mp4"))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 12, backend.timesCalled, "Cache should have been called 12 times but was called", backend.timesCalled)
+}
+
+
+func TestVaryAll(t *testing.T) {
+	handler, backend := buildBasicHandler()
+
+	backend.ResponseHeaders = http.Header{
+		"Vary": []string { "*" },
+		"Cache-Control": []string { "max-age=3600" },
+	}
+
+	_, err := makeNRequests(handler, 2, buildGetRequest("http://somehost.com/assets/1"))
+	assert.NoError(t, err, "Failed doing requests")
+
+	assert.Equal(t, 2, backend.timesCalled, "Invalid number of times called")
+}
+
+
+func TestVaryAcceptEncoding(t *testing.T) {
+	handler, backend := buildBasicHandler()
+
+	backend.ResponseHeaders = http.Header{
+		"Vary": []string { "Accept-Encoding" },
+		"Cache-Control": []string { "max-age=3600" },
+	}
+
+	_, err := makeNRequests(handler, 2, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
+		"Accept-Encoding": { "gzip" },
+	}))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 1, backend.timesCalled, "Invalid number of times called")
+
+	_, err = makeNRequests(handler, 3, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
+		"Accept-Encoding": { "deflate" },
+	}))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 2, backend.timesCalled, "Invalid number of times called")
+
+}
+
+func TestVaryWithTwoHeaders(t *testing.T) {
+	handler, backend := buildBasicHandler()
+
+	backend.ResponseHeaders = http.Header{
+		"Vary": []string { "Accept-Encoding, User-Agent" },
+		"Cache-Control": []string { "max-age=3600" },
+	}
+
+	_, err := makeNRequests(handler, 2, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
+		"Accept-Encoding": { "gzip" },
+		"User-Agent": { "Mobile" },
+		"X-Another": { "x" },
+	}))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 1, backend.timesCalled, "Invalid number of times called")
+
+	_, err = makeNRequests(handler, 2, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
+		"Accept-Encoding": { "gzip" },
+		"User-Agent": { "Mobile" },
+		"X-Another": { "Y" },
+	}))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 1, backend.timesCalled, "Invalid number of times called")
+
+	_, err = makeNRequests(handler, 3, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
+		"Accept-Encoding": { "gzip" },
+		"User-Agent": { "Desktop" },
+		"X-Another": { "X" },
+	}))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 2, backend.timesCalled, "Invalid number of times called")
+
 }
 
 

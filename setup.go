@@ -13,7 +13,6 @@ const DEFAULT_MAX_AGE = time.Duration(60) * time.Second
 
 type Config struct {
 	CacheRules	[]CacheRule
-	RedisURL       	string
 	DefaultMaxAge  	time.Duration
 }
 
@@ -36,7 +35,7 @@ func Setup(c *caddy.Controller) error {
 
 	handler := CacheHandler{
 		Config: config,
-		Client: getHandler(config),
+		Client: &storage.MemoryStorage{},
 	}
 
 	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
@@ -60,7 +59,6 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 	config := Config{
 		CacheRules: []CacheRule{},
 		DefaultMaxAge: DEFAULT_MAX_AGE,
-		RedisURL: "",
 	}
 
 	c.Next() // Skip "cache" literal
@@ -94,13 +92,6 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 						return nil, c.Err("Invalid value of default_max_age")
 					}
 					config.DefaultMaxAge = time.Duration(val) * time.Second
-				}
-			case "redis":
-				args := c.RemainingArgs()
-				if len(args) != 1 {
-					return nil, c.Err("Invalid usage of redis in cache config")
-				} else{
-					config.RedisURL = args[0]
 				}
 			default:
 				return nil, c.Err("Unknown cache parameter: " + parameter)
@@ -146,13 +137,4 @@ func parseMatchRules(c *caddy.Controller) ([]CacheRule, error) {
 	}
 
 	return rules, nil
-}
-
-
-func getHandler(config *Config) storage.Storage {
-	if config.RedisURL == "" {
-		return &storage.MemoryStorage{}
-	}
-
-	return &storage.RedisStorage{URL: config.RedisURL}
 }

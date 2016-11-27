@@ -3,7 +3,7 @@
 [![Build Status](https://travis-ci.org/nicolasazrak/caddy-cache.svg?branch=master)](https://travis-ci.org/nicolasazrak/caddy-cache)
 
 
-This is a simple caching plugin for [caddy server](https://caddyserver.com/) backed by redis or an in memory store.
+This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 
 To use it you need to compile your own version of caddy with this plugin like [this doc](https://github.com/mholt/caddy/wiki/Writing-a-Plugin:-Directives). 
  
@@ -21,7 +21,6 @@ This will store in cache responses that specifically have a `Cache-control`, `Ex
 For more advanced usages you can use the following parameters: 
 
 - `default_max_age`: You can set the default max age for responses without a `Cache-control` or `Expires` header. (Default: 60 seconds)
-- `redis`: If you want to use redis for caching just add the redis uri. (Note: this is not recommended if responses are large)
 - `match`: You can specify rules to make responses cacheable, if any matches and the response is cacheable by https://tools.ietf.org/html/rfc7234 then it will be stored. Supported options are:
     - `path`: check if the request starts with this path
     - `header`: checks if the response contains a header with one of the specified values
@@ -36,7 +35,6 @@ caddy.test {
             header Content-Type image/jpg image/png
         }
         default_max_age 10
-        redis redis://localhost:6379
     }
 }
 ```
@@ -61,7 +59,7 @@ Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
 
 ### Todo list
 
-- [ ] Support `vary` header
+- [x] Support `vary` header
 - [ ] Purge cache entries [#1](https://github.com/nicolasazrak/caddy-cache/issues/1)
 - [ ] Serve stale content if proxy is down
 - [ ] Punch hole cache
