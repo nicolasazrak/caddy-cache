@@ -79,7 +79,7 @@ func (s *MemoryStorage) expire() {
 		for key := range s.contents[bucket] {
 			notExpiredContent := s.contents[bucket][key][:0]
 			for _, entry := range s.contents[bucket][key] {
-				if entry.expiration.Before(time.Now().UTC()) {
+				if entry.expiration.After(time.Now().UTC()) {
 					notExpiredContent = append(notExpiredContent, entry)
 				}
 			}
