@@ -1,20 +1,20 @@
 package cache
 
 import (
-	"testing"
+	"fmt"
 	"github.com/nicolasazrak/caddy-cache/storage"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
-	"github.com/stretchr/testify/assert"
 	"net/url"
-	"fmt"
+	"testing"
 )
 
 type TestHandler struct {
-	timesCalled int
-	ResponseBody []byte
-	ResponseCode int
-	ResponseError error
+	timesCalled     int
+	ResponseBody    []byte
+	ResponseCode    int
+	ResponseError   error
 	ResponseHeaders http.Header
 }
 
@@ -40,12 +40,12 @@ func buildBasicHandler() (*CacheHandler, *TestHandler) {
 	}
 
 	return &CacheHandler{
-		Config: &Config {
-			CacheRules: []CacheRule{},
+		Config: &Config{
+			CacheRules:    []CacheRule{},
 			DefaultMaxAge: 10,
 		},
 		Client: &memory,
-		Next: &backend,
+		Next:   &backend,
 	}, &backend
 }
 
@@ -56,7 +56,7 @@ func buildGetRequestWithHeaders(path string, headers http.Header) *http.Request 
 	}
 	return &http.Request{
 		Method: "GET",
-		URL: reqUrl,
+		URL:    reqUrl,
 		Header: headers,
 	}
 }
@@ -65,7 +65,7 @@ func buildGetRequest(path string) *http.Request {
 	return buildGetRequestWithHeaders(path, http.Header{})
 }
 
-func makeNRequests(handler *CacheHandler, n int, req *http.Request) ([]*httptest.ResponseRecorder, error){
+func makeNRequests(handler *CacheHandler, n int, req *http.Request) ([]*httptest.ResponseRecorder, error) {
 	responses := []*httptest.ResponseRecorder{}
 	for i := 0; i < n; i++ {
 		recorder := httptest.NewRecorder()
@@ -80,13 +80,12 @@ func makeNRequests(handler *CacheHandler, n int, req *http.Request) ([]*httptest
 
 /* Actual Tests */
 
-
 // TODO avoid code duplication, use r.Run
 
 func TestCacheByCacheControlHeader(t *testing.T) {
 	handler, backend := buildBasicHandler()
 	backend.ResponseHeaders = http.Header{
-		"Cache-control": []string { "public; max-age=3600" },
+		"Cache-control": []string{"public; max-age=3600"},
 	}
 
 	_, err := makeNRequests(handler, 2, buildGetRequest("http://somehost.com/"))
@@ -98,7 +97,7 @@ func TestCacheByCacheControlHeader(t *testing.T) {
 func TestCacheByExpiresHeader(t *testing.T) {
 	handler, backend := buildBasicHandler()
 	backend.ResponseHeaders = http.Header{
-		"Expires": []string { "Thu, 01 Dec 2820 16:00:00 GMT" },
+		"Expires": []string{"Thu, 01 Dec 2820 16:00:00 GMT"},
 	}
 
 	_, err := makeNRequests(handler, 2, buildGetRequest("http://somehost.com/"))
@@ -110,7 +109,7 @@ func TestCacheByExpiresHeader(t *testing.T) {
 func TestNoCacheByExpiredHeader(t *testing.T) {
 	handler, backend := buildBasicHandler()
 	backend.ResponseHeaders = http.Header{
-		"Expires": []string { "Thu, 01 Dec 1994 16:00:00 GMT" },
+		"Expires": []string{"Thu, 01 Dec 1994 16:00:00 GMT"},
 	}
 
 	_, err := makeNRequests(handler, 2, buildGetRequest("http://somehost.com/"))
@@ -121,7 +120,7 @@ func TestNoCacheByExpiredHeader(t *testing.T) {
 
 func TestCacheByPath(t *testing.T) {
 	handler, backend := buildBasicHandler()
-	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{ Path: "/assets" })
+	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{Path: "/assets"})
 
 	req := buildGetRequest("http://somehost.com/assets/1")
 
@@ -133,7 +132,7 @@ func TestCacheByPath(t *testing.T) {
 
 func TestNotCacheablePath(t *testing.T) {
 	handler, backend := buildBasicHandler()
-	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{ Path: "/assets" })
+	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{Path: "/assets"})
 
 	req := buildGetRequest("http://somehost.com/api/1")
 
@@ -145,12 +144,12 @@ func TestNotCacheablePath(t *testing.T) {
 
 func TestNotCacheableMethod(t *testing.T) {
 	handler, backend := buildBasicHandler()
-	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{ Path: "/assets" })
+	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{Path: "/assets"})
 
 	reqUrl, _ := url.Parse("http://somehost.com/assets/some.jpg")
 	req := &http.Request{
 		Method: "POST",
-		URL: reqUrl,
+		URL:    reqUrl,
 	}
 
 	_, err := makeNRequests(handler, 2, req)
@@ -161,10 +160,10 @@ func TestNotCacheableMethod(t *testing.T) {
 
 func TestNotCacheableCacheControl(t *testing.T) {
 	handler, backend := buildBasicHandler()
-	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{ Path: "/assets" })
+	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{Path: "/assets"})
 
 	backend.ResponseHeaders = http.Header{
-		"Cache-control": []string { "private" },
+		"Cache-control": []string{"private"},
 	}
 
 	_, err := makeNRequests(handler, 2, buildGetRequest("http://somehost.com/assets/1"))
@@ -177,9 +176,9 @@ func TestAddAllHeaders(t *testing.T) {
 	handler, backend := buildBasicHandler()
 
 	responseHeaders := http.Header{
-		"Content-Type": []string { "text/plain; charset=utf-8" },
-		"X-Custom-2": []string { "bar", "baz" },
-		"X-Custom": []string { "foo", "bar", "baz" },
+		"Content-Type": []string{"text/plain; charset=utf-8"},
+		"X-Custom-2":   []string{"bar", "baz"},
+		"X-Custom":     []string{"foo", "bar", "baz"},
 	}
 	backend.ResponseHeaders = responseHeaders
 
@@ -194,35 +193,34 @@ func TestCacheByHeaders(t *testing.T) {
 
 	handler.Config.CacheRules = append(handler.Config.CacheRules, &HeaderCacheRule{
 		Header: "Content-Type",
-		Value: []string { "image/png", "image/gif" },
+		Value:  []string{"image/png", "image/gif"},
 	})
 
 	// First requests with png images that should be cached
-	backend.ResponseHeaders = http.Header{ "Content-Type": []string { "image/png" } }
+	backend.ResponseHeaders = http.Header{"Content-Type": []string{"image/png"}}
 	_, err := makeNRequests(handler, 5, buildGetRequest("http://somehost.com/another_not_cached_path/png"))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 1, backend.timesCalled, "Cache should have been called once, but it was called", backend.timesCalled)
 
 	// Second requests with gifs that should also be cached
-	backend.ResponseHeaders = http.Header{ "Content-Type": []string { "image/gif" } }
+	backend.ResponseHeaders = http.Header{"Content-Type": []string{"image/gif"}}
 	_, err = makeNRequests(handler, 2, buildGetRequest("http://somehost.com/another_not_cached_path/gif"))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 2, backend.timesCalled, "Cache should have been called twice but is was called", backend.timesCalled)
 
 	// Third request with videos that should also be cached
-	backend.ResponseHeaders = http.Header{ "Content-Type": []string { "video/mp4" } }
+	backend.ResponseHeaders = http.Header{"Content-Type": []string{"video/mp4"}}
 	_, err = makeNRequests(handler, 10, buildGetRequest("http://somehost.com/another_not_cached_path/mp4"))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 12, backend.timesCalled, "Cache should have been called 12 times but was called", backend.timesCalled)
 }
 
-
 func TestVaryAll(t *testing.T) {
 	handler, backend := buildBasicHandler()
 
 	backend.ResponseHeaders = http.Header{
-		"Vary": []string { "*" },
-		"Cache-Control": []string { "max-age=3600" },
+		"Vary":          []string{"*"},
+		"Cache-Control": []string{"max-age=3600"},
 	}
 
 	_, err := makeNRequests(handler, 2, buildGetRequest("http://somehost.com/assets/1"))
@@ -231,23 +229,22 @@ func TestVaryAll(t *testing.T) {
 	assert.Equal(t, 2, backend.timesCalled, "Invalid number of times called")
 }
 
-
 func TestVaryAcceptEncoding(t *testing.T) {
 	handler, backend := buildBasicHandler()
 
 	backend.ResponseHeaders = http.Header{
-		"Vary": []string { "Accept-Encoding" },
-		"Cache-Control": []string { "max-age=3600" },
+		"Vary":          []string{"Accept-Encoding"},
+		"Cache-Control": []string{"max-age=3600"},
 	}
 
 	_, err := makeNRequests(handler, 2, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
-		"Accept-Encoding": { "gzip" },
+		"Accept-Encoding": {"gzip"},
 	}))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 1, backend.timesCalled, "Invalid number of times called")
 
 	_, err = makeNRequests(handler, 3, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
-		"Accept-Encoding": { "deflate" },
+		"Accept-Encoding": {"deflate"},
 	}))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 2, backend.timesCalled, "Invalid number of times called")
@@ -258,43 +255,42 @@ func TestVaryWithTwoHeaders(t *testing.T) {
 	handler, backend := buildBasicHandler()
 
 	backend.ResponseHeaders = http.Header{
-		"Vary": []string { "Accept-Encoding, User-Agent" },
-		"Cache-Control": []string { "max-age=3600" },
+		"Vary":          []string{"Accept-Encoding, User-Agent"},
+		"Cache-Control": []string{"max-age=3600"},
 	}
 
 	_, err := makeNRequests(handler, 2, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
-		"Accept-Encoding": { "gzip" },
-		"User-Agent": { "Mobile" },
-		"X-Another": { "x" },
+		"Accept-Encoding": {"gzip"},
+		"User-Agent":      {"Mobile"},
+		"X-Another":       {"x"},
 	}))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 1, backend.timesCalled, "Invalid number of times called")
 
 	_, err = makeNRequests(handler, 2, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
-		"Accept-Encoding": { "gzip" },
-		"User-Agent": { "Mobile" },
-		"X-Another": { "Y" },
+		"Accept-Encoding": {"gzip"},
+		"User-Agent":      {"Mobile"},
+		"X-Another":       {"Y"},
 	}))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 1, backend.timesCalled, "Invalid number of times called")
 
 	_, err = makeNRequests(handler, 3, buildGetRequestWithHeaders("http://somehost.com/assets/1", http.Header{
-		"Accept-Encoding": { "gzip" },
-		"User-Agent": { "Desktop" },
-		"X-Another": { "X" },
+		"Accept-Encoding": {"gzip"},
+		"User-Agent":      {"Desktop"},
+		"X-Another":       {"X"},
 	}))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 2, backend.timesCalled, "Invalid number of times called")
 
 }
 
-
 func TestStatusCacheSkip(t *testing.T) {
 	handler, _ := buildBasicHandler()
 	handler.Config.StatusHeader = "cache-status"
 
 	reqUrl, _ := url.Parse("http://somehost.com/assets/some.jpg")
-	responses, err := makeNRequests(handler, 1, &http.Request{ Method: "POST", URL: reqUrl })
+	responses, err := makeNRequests(handler, 1, &http.Request{Method: "POST", URL: reqUrl})
 	assert.NoError(t, err, "Failed doing requests")
 
 	assert.Equal(t, "skip", responses[0].HeaderMap.Get("cache-status"))
@@ -305,7 +301,7 @@ func TestStatusCacheHit(t *testing.T) {
 	handler.Config.StatusHeader = "cache-status"
 
 	backend.ResponseHeaders = http.Header{
-		"Cache-control": []string { "public; max-age=3600" },
+		"Cache-control": []string{"public; max-age=3600"},
 	}
 
 	responses, err := makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
@@ -316,7 +312,6 @@ func TestStatusCacheHit(t *testing.T) {
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, "hit", responses[0].HeaderMap.Get("cache-status"))
 }
-
 
 func TestDefaultCacheTime(t *testing.T) {
 	// TODO test this

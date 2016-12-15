@@ -1,21 +1,21 @@
 package storage
 
 import (
-	"time"
-	"sync"
-	"math"
 	"hash/crc32"
+	"math"
+	"sync"
+	"time"
 )
 
 const bucketsSize = 256
 
 type MemoryStorage struct {
 	contents [bucketsSize]map[string][]*CacheEntry
-	mutex [bucketsSize]*sync.RWMutex
+	mutex    [bucketsSize]*sync.RWMutex
 }
 
 type CacheEntry struct {
-	value Value
+	value      Value
 	expiration time.Time
 }
 
@@ -49,15 +49,15 @@ func (s *MemoryStorage) Push(key string, cached Value, expiration time.Time) err
 	defer s.mutex[i].Unlock()
 
 	entries, ok := s.contents[i][key]
-	newEntry := &CacheEntry {
-		value: cached,
+	newEntry := &CacheEntry{
+		value:      cached,
 		expiration: expiration,
 	}
 
 	if ok {
 		s.contents[i][key] = append(entries, newEntry)
 	} else {
-		s.contents[i][key] = []*CacheEntry { newEntry }
+		s.contents[i][key] = []*CacheEntry{newEntry}
 	}
 
 	return nil
@@ -68,7 +68,7 @@ func (s *MemoryStorage) Setup() error {
 		s.mutex[i] = new(sync.RWMutex)
 		s.contents[i] = make(map[string][]*CacheEntry)
 	}
-	go doEvery(time.Duration(1) * time.Second, s.expire)
+	go doEvery(time.Duration(1)*time.Second, s.expire)
 	return nil
 }
 

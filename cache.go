@@ -1,32 +1,30 @@
 package cache
 
 import (
-	"time"
-	"strings"
-	"net/http"
-	"net/http/httptest"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 	"github.com/nicolasazrak/caddy-cache/storage"
 	"github.com/pquerna/cachecontrol"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
+	"time"
 )
-
 
 type CachedRequest struct {
 	HeaderMap http.Header // Headers are the only useful information
 }
 
 type CachedResponse struct {
-	Code      int           // the HTTP response code from WriteHeader
+	Code      int // the HTTP response code from WriteHeader
 	Body      []byte
-	HeaderMap http.Header   // the HTTP response headers
+	HeaderMap http.Header // the HTTP response headers
 }
 
 type CacheEntry struct {
-	Request *CachedRequest
+	Request  *CachedRequest
 	Response *CachedResponse
 }
-
 
 type CacheHandler struct {
 	Config *Config
@@ -34,8 +32,7 @@ type CacheHandler struct {
 	Next   httpserver.Handler
 }
 
-
-func respond(response * CachedResponse, w http.ResponseWriter) {
+func respond(response *CachedResponse, w http.ResponseWriter) {
 	for k, values := range response.HeaderMap {
 		for _, v := range values {
 			w.Header().Add(k, v)
@@ -105,8 +102,8 @@ func getKey(r *http.Request) string {
 	return r.Method + " " + r.Host + r.URL.Path
 }
 
-func (h CacheHandler) chooseIfVary(r *http.Request) (func (storage.Value) bool) {
-	return func (value storage.Value) bool {
+func (h CacheHandler) chooseIfVary(r *http.Request) func(storage.Value) bool {
+	return func(value storage.Value) bool {
 		entry := value.(*CacheEntry)
 		vary, hasVary := entry.Response.HeaderMap["Vary"]
 		if !hasVary {
@@ -115,7 +112,7 @@ func (h CacheHandler) chooseIfVary(r *http.Request) (func (storage.Value) bool) 
 
 		for _, searchedHeader := range strings.Split(vary[0], ",") {
 			searchedHeader = strings.TrimSpace(searchedHeader)
-			if !reflect.DeepEqual(entry.Request.HeaderMap[searchedHeader], r.Header[searchedHeader])  {
+			if !reflect.DeepEqual(entry.Request.HeaderMap[searchedHeader], r.Header[searchedHeader]) {
 				return false
 			}
 		}
@@ -149,10 +146,10 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			Request: &CachedRequest{
 				HeaderMap: r.Header,
 			},
-			Response: &CachedResponse {
-				Body: rec.Body.Bytes(),
+			Response: &CachedResponse{
+				Body:      rec.Body.Bytes(),
 				HeaderMap: rec.HeaderMap,
-				Code: rec.Code,
+				Code:      rec.Code,
 			},
 		}
 
