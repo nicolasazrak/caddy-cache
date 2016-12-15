@@ -1,14 +1,15 @@
 package cache
 
 import (
-	"github.com/mholt/caddy/caddyhttp/httpserver"
-	"github.com/nicolasazrak/caddy-cache/storage"
-	"github.com/pquerna/cachecontrol"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/mholt/caddy/caddyhttp/httpserver"
+	"github.com/nicolasazrak/caddy-cache/storage"
+	"github.com/pquerna/cachecontrol"
 )
 
 type CachedRequest struct {
@@ -99,7 +100,14 @@ func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder, confi
 }
 
 func getKey(r *http.Request) string {
-	return r.Method + " " + r.Host + r.URL.Path
+	key := r.Method + " " + r.Host + r.URL.Path
+
+	q := r.URL.Query().Encode()
+	if len(q) > 0 {
+		key += "?" + q
+	}
+
+	return key
 }
 
 func (h CacheHandler) chooseIfVary(r *http.Request) func(storage.Value) bool {
