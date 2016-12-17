@@ -109,8 +109,8 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 }
 
 func parseMatchRules(c *caddy.Controller) ([]CacheRule, error) {
-	if c.Next() && c.Val() != "{" {
-		return nil, c.Err("Invalid syntaxo on match directive in cache configuration")
+	if c.Next() && c.Val() != "{" { // Hack to make work nested Blocks
+		return nil, c.Err("Invalid syntax on match directive in cache configuration")
 	}
 
 	rules := []CacheRule{}
@@ -142,5 +142,6 @@ func parseMatchRules(c *caddy.Controller) ([]CacheRule, error) {
 		}
 	}
 
+	c.IncrNest() // Hack to make work nested Blocks
 	return rules, nil
 }

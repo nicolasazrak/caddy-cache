@@ -33,7 +33,7 @@ func TestParsingConfig(t *testing.T) {
 			},
 			DefaultMaxAge: DEFAULT_MAX_AGE,
 		}},
-		{"cache {\n default_max_age 30 \n match { \n path /assets \n } \n}", false, Config{
+		{"cache {\n match { \n path /assets \n } \n default_max_age 30 \n}", false, Config{
 			CacheRules:    []CacheRule{&cacheAssetsRule},
 			DefaultMaxAge: time.Second * time.Duration(30),
 		}},
@@ -64,6 +64,7 @@ func TestParsingConfig(t *testing.T) {
 		{"cache {\n default_max_age 20 \n max_age 50 \n}", true, Config{}}, // Mixed valid and invalid parameters
 		{"cache {\n match { \n path / ea \n} \n}", true, Config{}},         // Invalid number of parameters in match
 		{"cache {\n match { \n unknown \n} \n}", true, Config{}},           // Unknown condition in match
+		{"cache {\n match { \n \n}  invalid \n}", true, Config{}},           // Unknown "invalid"
 	}
 
 	for i, test := range tests {
