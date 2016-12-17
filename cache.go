@@ -136,8 +136,8 @@ func (h CacheHandler) AddStatusHeader(w http.ResponseWriter, status string) {
 
 func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	if !shouldUseCache(r) {
-		code, err := h.Next.ServeHTTP(w, r)
 		h.AddStatusHeader(w, "skip")
+		code, err := h.Next.ServeHTTP(w, r)
 		return code, err
 	}
 
@@ -179,8 +179,8 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 		return response.Response.Code, err
 	} else {
 		cached := value.(*CacheEntry)
-		respond(cached.Response, w)
 		h.AddStatusHeader(w, "hit")
+		respond(cached.Response, w)
 		return cached.Response.Code, nil
 	}
 }
