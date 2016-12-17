@@ -69,3 +69,4 @@ Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
 - [ ] File disk storage for larger objects
 - [ ] Do conditional requests to revalidate data
 - [ ] Max entries size
+- [ ] Add a configuration to not use query params in cache key
