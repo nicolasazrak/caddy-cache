@@ -2,21 +2,20 @@ package cache
 
 import (
 	"fmt"
-	"time"
-	"strconv"
 	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 	"github.com/nicolasazrak/caddy-cache/storage"
+	"strconv"
+	"time"
 )
 
 const DEFAULT_MAX_AGE = time.Duration(60) * time.Second
 
 type Config struct {
-	CacheRules		[]CacheRule
-	DefaultMaxAge  	time.Duration
-	StatusHeader	string
+	CacheRules    []CacheRule
+	DefaultMaxAge time.Duration
+	StatusHeader  string
 }
-
 
 func init() {
 	httpserver.RegisterDevDirective("cache", "root")
@@ -25,7 +24,6 @@ func init() {
 		Action:     Setup,
 	})
 }
-
 
 func Setup(c *caddy.Controller) error {
 	config, err := cacheParse(c)
@@ -58,9 +56,9 @@ func Setup(c *caddy.Controller) error {
 
 func cacheParse(c *caddy.Controller) (*Config, error) {
 	config := Config{
-		CacheRules: []CacheRule{},
+		CacheRules:    []CacheRule{},
 		DefaultMaxAge: DEFAULT_MAX_AGE,
-		StatusHeader: "",
+		StatusHeader:  "",
 	}
 
 	c.Next() // Skip "cache" literal
@@ -73,43 +71,42 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 		parameter := c.Val()
 		switch parameter {
 
-			case "match":
-				args := c.RemainingArgs()
-				if len(args) != 0 {
-					return nil, c.Err("Invalid usage of match in cache config.")
-				} else{
-					cacheRules, err := parseMatchRules(c)
-					if err != nil {
-						return nil, err
-					}
-					config.CacheRules = cacheRules
+		case "match":
+			args := c.RemainingArgs()
+			if len(args) != 0 {
+				return nil, c.Err("Invalid usage of match in cache config.")
+			} else {
+				cacheRules, err := parseMatchRules(c)
+				if err != nil {
+					return nil, err
 				}
-			case "default_max_age" :
-				args := c.RemainingArgs()
-				if len(args) != 1 {
-					return nil, c.Err("Invalid usage of default_max_age in cache config.")
-				} else{
-					val, err := strconv.Atoi(args[0])
-					if err != nil || val < 0 {
-						return nil, c.Err("Invalid value of default_max_age")
-					}
-					config.DefaultMaxAge = time.Duration(val) * time.Second
-				}
-			case "status_header":
-				args := c.RemainingArgs()
-				if len(args) != 1 {
-					return nil, c.Err("Invalid usage of status_header in cache config.")
-				} else{
-					config.StatusHeader = args[0]
-				}
-			default:
-				return nil, c.Err("Unknown cache parameter: " + parameter)
+				config.CacheRules = cacheRules
 			}
+		case "default_max_age":
+			args := c.RemainingArgs()
+			if len(args) != 1 {
+				return nil, c.Err("Invalid usage of default_max_age in cache config.")
+			} else {
+				val, err := strconv.Atoi(args[0])
+				if err != nil || val < 0 {
+					return nil, c.Err("Invalid value of default_max_age")
+				}
+				config.DefaultMaxAge = time.Duration(val) * time.Second
+			}
+		case "status_header":
+			args := c.RemainingArgs()
+			if len(args) != 1 {
+				return nil, c.Err("Invalid usage of status_header in cache config.")
+			} else {
+				config.StatusHeader = args[0]
+			}
+		default:
+			return nil, c.Err("Unknown cache parameter: " + parameter)
+		}
 	}
 
 	return &config, nil
 }
-
 
 func parseMatchRules(c *caddy.Controller) ([]CacheRule, error) {
 	if c.Next() && c.Val() != "{" {
@@ -128,14 +125,14 @@ func parseMatchRules(c *caddy.Controller) ([]CacheRule, error) {
 			} else {
 				rules = append(rules, &HeaderCacheRule{
 					Header: args[0],
-					Value: args[1:],
+					Value:  args[1:],
 				})
 			}
 		case "path":
 			args := c.RemainingArgs()
 			if len(args) != 1 {
 				return nil, c.Err("Invalid number of arguments in path condition of match in cache config.")
-			} else{
+			} else {
 				rules = append(rules, &PathCacheRule{
 					Path: args[0],
 				})
