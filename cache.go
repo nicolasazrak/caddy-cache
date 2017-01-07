@@ -2,7 +2,6 @@ package cache
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"time"
@@ -59,7 +58,7 @@ func shouldUseCache(req *http.Request) bool {
 	return true
 }
 
-func getCacheableStatus(req *http.Request, res *httptest.ResponseRecorder, config *Config) (bool, time.Time, error) {
+func getCacheableStatus(req *http.Request, res *StreamedRecorder, config *Config) (bool, time.Time, error) {
 	reasonsNotToCache, expiration, err := cachecontrol.CachableResponse(req, res.Result(), cachecontrol.Options{})
 
 	if err != nil {
@@ -128,7 +127,7 @@ func (h CacheHandler) chooseIfVary(r *http.Request) func(storage.Value) bool {
 	}
 }
 
-func (h CacheHandler) AddStatusHeader(w http.ResponseWriter, status string) {
+func (h CacheHandler) AddStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
 	if h.Config.StatusHeader != "" {
 		w.Header().Add(h.Config.StatusHeader, status)
 	}
@@ -136,9 +135,8 @@ func (h CacheHandler) AddStatusHeader(w http.ResponseWriter, status string) {
 
 func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	if !shouldUseCache(r) {
-		h.AddStatusHeader(w, "skip")
-		code, err := h.Next.ServeHTTP(w, r)
-		return code, err
+		h.AddStatusHeaderIfConfigured(w, "skip")
+		return h.Next.ServeHTTP(w, r)
 	}
 
 	value, err := h.Client.Get(getKey(r), h.chooseIfVary(r))
@@ -147,7 +145,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 	}
 
 	if value == nil {
-		rec := httptest.NewRecorder()
+		rec := NewStreamedRecorder(w)
 		_, err := h.Next.ServeHTTP(rec, r)
 
 		response := &CacheEntry{
@@ -174,12 +172,11 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			}
 		}
 
-		h.AddStatusHeader(w, "miss")
-		respond(response.Response, w)
+		h.AddStatusHeaderIfConfigured(w, "miss")
 		return response.Response.Code, err
 	} else {
 		cached := value.(*CacheEntry)
-		h.AddStatusHeader(w, "hit")
+		h.AddStatusHeaderIfConfigured(w, "hit")
 		respond(cached.Response, w)
 		return cached.Response.Code, nil
 	}

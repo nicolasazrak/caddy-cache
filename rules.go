@@ -2,12 +2,11 @@ package cache
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 )
 
 type CacheRule interface {
-	matches(*http.Request, *httptest.ResponseRecorder) bool
+	matches(*http.Request, *StreamedRecorder) bool
 }
 
 type PathCacheRule struct {
@@ -21,11 +20,11 @@ type HeaderCacheRule struct {
 
 /* This rules decide if the request must be cached and are added to handler config if are present in Caddyfile */
 
-func (rule *PathCacheRule) matches(req *http.Request, res *httptest.ResponseRecorder) bool {
+func (rule *PathCacheRule) matches(req *http.Request, res *StreamedRecorder) bool {
 	return strings.HasPrefix(req.URL.Path, rule.Path)
 }
 
-func (rule *HeaderCacheRule) matches(req *http.Request, res *httptest.ResponseRecorder) bool {
+func (rule *HeaderCacheRule) matches(req *http.Request, res *StreamedRecorder) bool {
 	headerValue := res.HeaderMap.Get(rule.Header)
 	for _, expectedValue := range rule.Value {
 		if expectedValue == headerValue {

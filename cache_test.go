@@ -208,7 +208,7 @@ func TestCacheByHeaders(t *testing.T) {
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, 2, backend.timesCalled, "Cache should have been called twice but is was called", backend.timesCalled)
 
-	// Third request with videos that should also be cached
+	// Third request with videos that should not be cached
 	backend.ResponseHeaders = http.Header{"Content-Type": []string{"video/mp4"}}
 	_, err = makeNRequests(handler, 10, buildGetRequest("http://somehost.com/another_not_cached_path/mp4"))
 	assert.NoError(t, err, "Failed doing requests")
@@ -311,6 +311,26 @@ func TestStatusCacheHit(t *testing.T) {
 	responses, err = makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
 	assert.NoError(t, err, "Failed doing requests")
 	assert.Equal(t, "hit", responses[0].HeaderMap.Get("cache-status"))
+}
+
+func TestStatusCode(t *testing.T) {
+	handler, backend := buildBasicHandler()
+	handler.Config.StatusHeader = "cache-status"
+
+	backend.ResponseCode = 404
+	backend.ResponseHeaders = http.Header{
+		"Cache-control": []string{"public; max-age=3600"},
+	}
+
+	responses, err := makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, "miss", responses[0].HeaderMap.Get("cache-status"))
+	assert.Equal(t, 404, responses[0].Code)
+
+	responses, err = makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, "hit", responses[0].HeaderMap.Get("cache-status"))
+	assert.Equal(t, 404, responses[0].Code)
 }
 
 func TestDefaultCacheTime(t *testing.T) {
