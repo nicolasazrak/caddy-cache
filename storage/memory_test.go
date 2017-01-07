@@ -103,7 +103,7 @@ func TestExpire(t *testing.T) {
 	m.Push("b", valueTwo, time.Now().Add(time.Duration(2)*time.Second))
 	m.Push("b", valueThree, time.Now().Add(time.Duration(3)*time.Second))
 
-	matcher := func(key string, aValue string, shouldExist bool) {
+	assertExpiration := func(key string, aValue string, shouldExist bool) {
 		found, err := m.Get(key, func(a Value) bool {
 			return a.(TestEntry).a == aValue
 		})
@@ -115,25 +115,25 @@ func TestExpire(t *testing.T) {
 		}
 	}
 
-	matcher("a", "One", true)
-	matcher("b", "Two", true)
-	matcher("b", "Three", true)
+	assertExpiration("a", "One", true)
+	assertExpiration("b", "Two", true)
+	assertExpiration("b", "Three", true)
 
 	time.Sleep(time.Duration(1100) * time.Millisecond)
 
-	matcher("a", "One", false)
-	matcher("b", "Two", true)
-	matcher("b", "Three", true)
+	assertExpiration("a", "One", false)
+	assertExpiration("b", "Two", true)
+	assertExpiration("b", "Three", true)
 
 	time.Sleep(time.Duration(1100) * time.Millisecond)
 
-	matcher("a", "One", false)
-	matcher("b", "Two", false)
-	matcher("b", "Three", true)
+	assertExpiration("a", "One", false)
+	assertExpiration("b", "Two", false)
+	assertExpiration("b", "Three", true)
 
 	time.Sleep(time.Duration(1100) * time.Millisecond)
 
-	matcher("a", "One", false)
-	matcher("b", "Two", false)
-	matcher("b", "Three", false)
+	assertExpiration("a", "One", false)
+	assertExpiration("b", "Two", false)
+	assertExpiration("b", "Three", false)
 }

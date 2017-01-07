@@ -11,7 +11,10 @@ const bucketsSize = 256
 
 type MemoryStorage struct {
 	contents [bucketsSize]map[string][]*CacheEntry
-	mutex    [bucketsSize]*sync.RWMutex
+
+	// This are the Read/Write locks shared by key
+	// So the prevents to lock all keys when only one is being written
+	mutex [bucketsSize]*sync.RWMutex
 }
 
 type CacheEntry struct {
@@ -60,6 +63,9 @@ func (s *MemoryStorage) Push(key string, cached Value, expiration time.Time) err
 		s.contents[i][key] = []*CacheEntry{newEntry}
 	}
 
+	// Launch a new go routine that will expire the content
+	go s.expire(key, expiration)
+
 	return nil
 }
 
@@ -68,29 +74,26 @@ func (s *MemoryStorage) Setup() error {
 		s.mutex[i] = new(sync.RWMutex)
 		s.contents[i] = make(map[string][]*CacheEntry)
 	}
-	go doEvery(time.Duration(1)*time.Second, s.expire)
 	return nil
 }
 
-// TODO test this
-func (s *MemoryStorage) expire() {
-	for bucket := 0; bucket < int(bucketsSize); bucket++ {
-		s.mutex[bucket].Lock()
-		for key := range s.contents[bucket] {
-			notExpiredContent := s.contents[bucket][key][:0]
-			for _, entry := range s.contents[bucket][key] {
-				if entry.expiration.After(time.Now().UTC()) {
-					notExpiredContent = append(notExpiredContent, entry)
-				}
-			}
-			s.contents[bucket][key] = notExpiredContent
-		}
-		s.mutex[bucket].Unlock()
-	}
-}
+func (s *MemoryStorage) expire(key string, expiration time.Time) {
+	// Sleep until is time to cleanup entry
+	time.Sleep(expiration.Sub(time.Now().UTC()))
 
-func doEvery(d time.Duration, f func()) {
-	for range time.Tick(d) {
-		f()
+	// Get bucket and lock
+	bucket := s.getBucketIndexForKey(key)
+	s.mutex[bucket].Lock()
+	defer s.mutex[bucket].Unlock()
+
+	// This should prevent creating a new array
+	// Uses the same slice
+	notExpiredContent := s.contents[bucket][key][:0]
+	for _, entry := range s.contents[bucket][key] {
+		// Check which entry for the key is expired
+		if entry.expiration.After(time.Now().UTC()) {
+			notExpiredContent = append(notExpiredContent, entry)
+		}
 	}
+	s.contents[bucket][key] = notExpiredContent
 }
