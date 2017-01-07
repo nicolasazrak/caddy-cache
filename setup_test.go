@@ -64,7 +64,7 @@ func TestParsingConfig(t *testing.T) {
 		{"cache {\n default_max_age 20 \n max_age 50 \n}", true, Config{}}, // Mixed valid and invalid parameters
 		{"cache {\n match { \n path / ea \n} \n}", true, Config{}},         // Invalid number of parameters in match
 		{"cache {\n match { \n unknown \n} \n}", true, Config{}},           // Unknown condition in match
-		{"cache {\n match { \n \n}  invalid \n}", true, Config{}},           // Unknown "invalid"
+		{"cache {\n match { \n \n}  invalid \n}", true, Config{}},          // Unknown "invalid"
 	}
 
 	for i, test := range tests {
