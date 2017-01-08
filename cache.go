@@ -109,7 +109,7 @@ func getKey(r *http.Request) string {
 	return key
 }
 
-func (h CacheHandler) chooseIfVary(r *http.Request) func(storage.Value) bool {
+func (h *CacheHandler) chooseIfVary(r *http.Request) func(storage.Value) bool {
 	return func(value storage.Value) bool {
 		entry := value.(*CacheEntry)
 		vary, hasVary := entry.Response.HeaderMap["Vary"]
@@ -127,10 +127,21 @@ func (h CacheHandler) chooseIfVary(r *http.Request) func(storage.Value) bool {
 	}
 }
 
-func (h CacheHandler) AddStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
+func (h *CacheHandler) AddStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
 	if h.Config.StatusHeader != "" {
 		w.Header().Add(h.Config.StatusHeader, status)
 	}
+}
+
+/**
+* This prevents storing status header in cache.
+* Otherwise the status cache will be sent twice for cached results
+ */
+func (h *CacheHandler) RemoveStatusHeaderIfConfigured(headers http.Header) http.Header {
+	if h.Config.StatusHeader != "" {
+		delete(headers, h.Config.StatusHeader)
+	}
+	return headers
 }
 
 func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
@@ -146,6 +157,9 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 	if value == nil {
 		rec := NewStreamedRecorder(w)
+
+		h.AddStatusHeaderIfConfigured(w, "miss")
+
 		_, err := h.Next.ServeHTTP(rec, r)
 
 		response := &CacheEntry{
@@ -154,8 +168,8 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			},
 			Response: &CachedResponse{
 				Body:      rec.Body.Bytes(),
-				HeaderMap: rec.HeaderMap,
-				Code:      rec.Code,
+				HeaderMap: h.RemoveStatusHeaderIfConfigured(rec.Result().Header),
+				Code:      rec.Result().StatusCode,
 			},
 		}
 
@@ -172,7 +186,6 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 			}
 		}
 
-		h.AddStatusHeaderIfConfigured(w, "miss")
 		return response.Response.Code, err
 	} else {
 		cached := value.(*CacheEntry)
