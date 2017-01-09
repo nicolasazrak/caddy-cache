@@ -4,11 +4,8 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/mholt/caddy/caddyhttp/httpserver"
-	"github.com/nicolasazrak/caddy-cache/storage"
-	"github.com/pquerna/cachecontrol"
 )
 
 type CachedRequest struct {
@@ -21,14 +18,14 @@ type CachedResponse struct {
 	HeaderMap http.Header // the HTTP response headers
 }
 
-type CacheEntry struct {
+type HttpCacheEntry struct {
 	Request  *CachedRequest
 	Response *CachedResponse
 }
 
 type CacheHandler struct {
 	Config *Config
-	Client storage.Storage
+	Client *MemoryStorage
 	Next   httpserver.Handler
 }
 
@@ -42,62 +39,6 @@ func respond(response *CachedResponse, w http.ResponseWriter) {
 	w.Write(response.Body)
 }
 
-func shouldUseCache(req *http.Request) bool {
-	// TODO Add more logic like get params, ?nocache=true
-
-	if req.Method != "GET" && req.Method != "HEAD" {
-		// Only cache Get and head request
-		return false
-	}
-
-	// Range responses still not supported
-	if req.Header.Get("accept-ranges") != "" {
-		return false
-	}
-
-	return true
-}
-
-func getCacheableStatus(req *http.Request, res *StreamedRecorder, config *Config) (bool, time.Time, error) {
-	reasonsNotToCache, expiration, err := cachecontrol.CachableResponse(req, res.Result(), cachecontrol.Options{})
-
-	if err != nil {
-		return false, time.Now(), err
-	}
-
-	canBeStored := len(reasonsNotToCache) == 0
-
-	if !canBeStored {
-		return false, time.Now(), nil
-	}
-
-	varyHeaders, ok := res.HeaderMap["Vary"]
-	if ok && varyHeaders[0] == "*" {
-		return false, time.Now(), nil
-	}
-
-	hasExplicitExpiration := expiration.After(time.Now().UTC())
-
-	if expiration.Before(time.Now().UTC().Add(time.Duration(1) * time.Second)) {
-		// If expiration is not specified or is before now use default MaxAge
-		expiration = time.Now().UTC().Add(config.DefaultMaxAge)
-	}
-
-	anyCacheRulesMatches := false
-	for _, rule := range config.CacheRules {
-		if rule.matches(req, res) {
-			anyCacheRulesMatches = true
-			break
-		}
-	}
-
-	if err != nil {
-		return false, time.Now(), err
-	}
-
-	return anyCacheRulesMatches || hasExplicitExpiration, expiration, nil
-}
-
 func getKey(r *http.Request) string {
 	key := r.Method + " " + r.Host + r.URL.Path
 
@@ -109,9 +50,9 @@ func getKey(r *http.Request) string {
 	return key
 }
 
-func (h *CacheHandler) chooseIfVary(r *http.Request) func(storage.Value) bool {
-	return func(value storage.Value) bool {
-		entry := value.(*CacheEntry)
+func (h *CacheHandler) chooseIfVary(r *http.Request) func(Value) bool {
+	return func(value Value) bool {
+		entry := value.(*HttpCacheEntry)
 		vary, hasVary := entry.Response.HeaderMap["Vary"]
 		if !hasVary {
 			return true
@@ -162,7 +103,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 		_, err := h.Next.ServeHTTP(rec, r)
 
-		response := &CacheEntry{
+		response := &HttpCacheEntry{
 			Request: &CachedRequest{
 				HeaderMap: r.Header,
 			},
@@ -188,7 +129,7 @@ func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 		return response.Response.Code, err
 	} else {
-		cached := value.(*CacheEntry)
+		cached := value.(*HttpCacheEntry)
 		h.AddStatusHeaderIfConfigured(w, "hit")
 		respond(cached.Response, w)
 		return cached.Response.Code, nil

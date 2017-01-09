@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
-	"github.com/nicolasazrak/caddy-cache/storage"
 	"strconv"
 	"time"
 )
@@ -34,7 +33,7 @@ func Setup(c *caddy.Controller) error {
 
 	handler := CacheHandler{
 		Config: config,
-		Client: &storage.MemoryStorage{},
+		Client: &MemoryStorage{},
 	}
 
 	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {

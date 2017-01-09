@@ -1,4 +1,4 @@
-package storage
+package cache
 
 import (
 	"hash/crc32"
@@ -8,6 +8,8 @@ import (
 )
 
 const bucketsSize = 256
+
+type Value interface{}
 
 type MemoryStorage struct {
 	contents [bucketsSize]map[string][]*CacheEntry

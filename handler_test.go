@@ -2,7 +2,6 @@ package cache
 
 import (
 	"fmt"
-	"github.com/nicolasazrak/caddy-cache/storage"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +32,7 @@ func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 }
 
 func buildBasicHandler() (*CacheHandler, *TestHandler) {
-	memory := storage.MemoryStorage{}
+	memory := MemoryStorage{}
 	memory.Setup()
 	backend := TestHandler{
 		ResponseCode: 200,
