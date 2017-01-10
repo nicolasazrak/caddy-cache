@@ -1,35 +1,41 @@
 package cache
 
 import (
+	"github.com/mholt/caddy/caddyhttp/httpserver"
 	"net/http"
 	"reflect"
 	"strings"
-
-	"github.com/mholt/caddy/caddyhttp/httpserver"
+	"time"
 )
 
-type CachedRequest struct {
+type Request struct {
 	HeaderMap http.Header // Headers are the only useful information
 }
 
-type CachedResponse struct {
+type Response struct {
 	Code      int // the HTTP response code from WriteHeader
 	Body      []byte
 	HeaderMap http.Header // the HTTP response headers
 }
 
 type HttpCacheEntry struct {
-	Request  *CachedRequest
-	Response *CachedResponse
+	// IsCached might not be the better name
+	// It means that the response can be sent to the client
+	// Because not only public responses are stored, private too.
+	// So if this is false, it means a request to upstream is needed
+	IsCached   bool
+	Expiration time.Time
+	Request    *Request
+	Response   *Response
 }
 
 type CacheHandler struct {
-	Config *Config
-	Client *MemoryStorage
-	Next   httpserver.Handler
+	Config  *Config
+	Storage *MemoryStorage
+	Next    httpserver.Handler
 }
 
-func respond(response *CachedResponse, w http.ResponseWriter) {
+func respond(response *Response, w http.ResponseWriter) {
 	for k, values := range response.HeaderMap {
 		for _, v := range values {
 			w.Header().Add(k, v)
@@ -39,6 +45,9 @@ func respond(response *CachedResponse, w http.ResponseWriter) {
 	w.Write(response.Body)
 }
 
+/**
+ * Builds the cache key
+ */
 func getKey(r *http.Request) string {
 	key := r.Method + " " + r.Host + r.URL.Path
 
@@ -50,9 +59,15 @@ func getKey(r *http.Request) string {
 	return key
 }
 
-func (h *CacheHandler) chooseIfVary(r *http.Request) func(Value) bool {
-	return func(value Value) bool {
-		entry := value.(*HttpCacheEntry)
+/**
+ * Returns a function that given a previous response returns if it matches the current response
+ */
+func matchesRequest(r *http.Request) func(*HttpCacheEntry) bool {
+	return func(entry *HttpCacheEntry) bool {
+		// TODO match getKeys()
+		// It is always called with same key values
+		// But checking it is better
+
 		vary, hasVary := entry.Response.HeaderMap["Vary"]
 		if !hasVary {
 			return true
@@ -85,53 +100,71 @@ func (h *CacheHandler) RemoveStatusHeaderIfConfigured(headers http.Header) http.
 	return headers
 }
 
-func (h CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
+func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	if !shouldUseCache(r) {
-		h.AddStatusHeaderIfConfigured(w, "skip")
-		return h.Next.ServeHTTP(w, r)
+		handler.AddStatusHeaderIfConfigured(w, "skip")
+		return handler.Next.ServeHTTP(w, r)
 	}
 
-	value, err := h.Client.Get(getKey(r), h.chooseIfVary(r))
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
+	returnedStatusCode := 500 // If this is not updated means there was an error
+	err := handler.Storage.GetOrLock(getKey(r), matchesRequest(r), func(previous *HttpCacheEntry) error {
 
-	if value == nil {
-		rec := NewStreamedRecorder(w)
+		if previous == nil || !previous.IsCached {
+			rec := NewStreamedRecorder(w)
 
-		h.AddStatusHeaderIfConfigured(w, "miss")
+			handler.AddStatusHeaderIfConfigured(w, "miss")
 
-		_, err := h.Next.ServeHTTP(rec, r)
-
-		response := &HttpCacheEntry{
-			Request: &CachedRequest{
-				HeaderMap: r.Header,
-			},
-			Response: &CachedResponse{
-				Body:      rec.Body.Bytes(),
-				HeaderMap: h.RemoveStatusHeaderIfConfigured(rec.Result().Header),
-				Code:      rec.Result().StatusCode,
-			},
-		}
-
-		isCacheable, expirationTime, err := getCacheableStatus(r, rec, h.Config)
-
-		if err != nil {
-			return 500, err
-		}
-
-		if isCacheable {
-			err = h.Client.Push(getKey(r), response, expirationTime)
+			_, err := handler.Next.ServeHTTP(rec, r)
 			if err != nil {
-				return http.StatusInternalServerError, err
+				return err
 			}
-		}
 
-		return response.Response.Code, err
-	} else {
-		cached := value.(*HttpCacheEntry)
-		h.AddStatusHeaderIfConfigured(w, "hit")
-		respond(cached.Response, w)
-		return cached.Response.Code, nil
-	}
+			isCacheable, expirationTime, err := getCacheableStatus(r, rec, handler.Config)
+			if err != nil {
+				return err
+			}
+
+			// This is useless if request is not cacheable, but the response is already recorded
+			// The next todo thing is avoid this
+			storedBody := rec.Body.Bytes()
+
+			if !isCacheable {
+				// Non cacheable responses are stored to avoid locking
+				// But body is not useful
+				storedBody = []byte{}
+
+				// Re validate locking on 60 seconds
+				expirationTime = time.Now().UTC().Add(time.Duration(1) * time.Hour)
+			}
+
+			// Build the cache entry
+			response := &HttpCacheEntry{
+				IsCached:   isCacheable,
+				Expiration: expirationTime,
+				Request: &Request{
+					HeaderMap: r.Header,
+				},
+				Response: &Response{
+					Body:      storedBody,
+					HeaderMap: handler.RemoveStatusHeaderIfConfigured(rec.Result().Header),
+					Code:      rec.Result().StatusCode,
+				},
+			}
+
+			// Set instead of push to prevent storing a lot responses unused
+			err = handler.Storage.Push(getKey(r), response)
+			if err != nil {
+				return err
+			}
+
+			returnedStatusCode = rec.Result().StatusCode
+			return nil
+		} else {
+			handler.AddStatusHeaderIfConfigured(w, "hit")
+			respond(previous.Response, w)
+			returnedStatusCode = previous.Response.Code
+			return nil
+		}
+	})
+	return returnedStatusCode, err
 }

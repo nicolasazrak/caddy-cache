@@ -6,134 +6,140 @@ import (
 	"time"
 )
 
-type TestEntry struct {
-	a string
-	b int
+func alwaysTrue(a *HttpCacheEntry) bool {
+	return true
 }
 
 func TestGetSet(t *testing.T) {
 	m := MemoryStorage{}
 	m.Setup()
-	a := TestEntry{
-		a: "One",
-		b: 4,
+	a := &HttpCacheEntry{
+		IsCached:   true,
+		Expiration: time.Now().Add(time.Duration(5) * time.Second),
 	}
-	m.Push("a", a, time.Now().Add(time.Duration(5)*time.Second))
-	found, err := m.Get("a", func(a Value) bool {
-		return true
+
+	m.Push("a", a)
+	err := m.GetOrLock("a", alwaysTrue, func(found *HttpCacheEntry) error {
+		assert.Equal(t, a, found, "Could not found searched value")
+		return nil
 	})
 
-	assert.NoError(t, err, "Error while getting key")
-	assert.Equal(t, a, found, "Could not found searched value")
+	assert.NoError(t, err, "Should not have been an error")
 }
 
 func TestGetNonExistentKey(t *testing.T) {
 	m := MemoryStorage{}
 	m.Setup()
-	found, err := m.Get("a", func(a Value) bool {
-		return true
+	a := &HttpCacheEntry{
+		IsCached:   true,
+		Expiration: time.Now().Add(time.Duration(5) * time.Second),
+	}
+
+	m.Push("a", a)
+	err := m.GetOrLock("b", alwaysTrue, func(found *HttpCacheEntry) error {
+		assert.Nil(t, found, "Should not have found element")
+		return nil
 	})
-	assert.NoError(t, err, "Error while getting key")
-	assert.Nil(t, found, "Should not have found anything")
+
+	assert.NoError(t, err, "Should not have been an error")
 }
 
 func TestPushManyValuesInSameKey(t *testing.T) {
 	m := MemoryStorage{}
 	m.Setup()
-	valueOne := TestEntry{a: "One", b: 1}
-	valueTwo := TestEntry{a: "Two", b: 2}
+	inFiveSeconds := time.Now().UTC().Add(time.Duration(5) * time.Second)
+	inTwoSeconds := time.Now().UTC().Add(time.Duration(2) * time.Second)
 
-	m.Push("a", valueOne, time.Now().Add(time.Duration(5)*time.Second))
-	m.Push("a", valueTwo, time.Now().Add(time.Duration(5)*time.Second))
+	a := &HttpCacheEntry{IsCached: true, Expiration: inFiveSeconds}
+	b := &HttpCacheEntry{IsCached: false, Expiration: inTwoSeconds}
 
-	foundOne, err := m.Get("a", func(a Value) bool {
-		return a.(TestEntry).a == "One"
+	m.Push("a", a)
+	m.Push("a", b)
+
+	err := m.GetOrLock("a", func(a *HttpCacheEntry) bool { return a.IsCached }, func(found *HttpCacheEntry) error {
+		assert.Equal(t, a, found, "Got another value")
+		return nil
 	})
 
 	assert.NoError(t, err, "Error while getting first value of a")
-	assert.Equal(t, 1, foundOne.(TestEntry).b, "Could not found searched value")
 
-	foundTwo, err := m.Get("a", func(a Value) bool {
-		return a.(TestEntry).a == "Two"
+	err = m.GetOrLock("a", func(b *HttpCacheEntry) bool { return !b.IsCached }, func(found *HttpCacheEntry) error {
+		assert.Equal(t, b, found, "Got another value")
+		return nil
 	})
-
 	assert.NoError(t, err, "Error while getting second value of a")
-	assert.Equal(t, 2, foundTwo.(TestEntry).b, "Could not found searched value")
 }
 
 func TestPushManyValuesToDifferentKeys(t *testing.T) {
 	m := MemoryStorage{}
 	m.Setup()
-	valueOne := TestEntry{a: "One", b: 1}
-	valueTwo := TestEntry{a: "Two", b: 2}
+	inFiveSeconds := time.Now().UTC().Add(time.Duration(5) * time.Second)
+	inTwoSeconds := time.Now().UTC().Add(time.Duration(2) * time.Second)
 
-	m.Push("a", valueOne, time.Now().Add(time.Duration(5)*time.Second))
-	m.Push("b", valueTwo, time.Now().Add(time.Duration(5)*time.Second))
+	a := &HttpCacheEntry{IsCached: true, Expiration: inFiveSeconds}
+	b := &HttpCacheEntry{IsCached: false, Expiration: inTwoSeconds}
 
-	foundOne, err := m.Get("a", func(a Value) bool {
-		return a.(TestEntry).a == "One"
+	m.Push("a", a)
+	m.Push("b", b)
+
+	err := m.GetOrLock("a", alwaysTrue, func(found *HttpCacheEntry) error {
+		assert.Equal(t, a, found, "Got another value")
+		return nil
 	})
-
 	assert.NoError(t, err, "Error while getting first value of a")
-	assert.Equal(t, 1, foundOne.(TestEntry).b, "Could not found searched value")
 
-	foundTwo, err := m.Get("b", func(a Value) bool {
-		return a.(TestEntry).a == "Two"
+	err = m.GetOrLock("b", alwaysTrue, func(found *HttpCacheEntry) error {
+		assert.Equal(t, b, found, "Got another value")
+		return nil
 	})
-
 	assert.NoError(t, err, "Error while getting second value of a")
-	assert.Equal(t, 2, foundTwo.(TestEntry).b, "Could not found searched value")
-
-	notFound, err := m.Get("a", func(a Value) bool {
-		return a.(TestEntry).a == "Two"
-	})
-
-	assert.NoError(t, err, "Got erro while getting non existent key")
-	assert.Nil(t, notFound, "Should not have found value")
 }
 
 func TestExpire(t *testing.T) {
 	m := MemoryStorage{}
 	m.Setup()
-	valueOne := TestEntry{a: "One", b: 1}
-	valueTwo := TestEntry{a: "Two", b: 2}
-	valueThree := TestEntry{a: "Three", b: 3}
+	in10Milliseconds := time.Now().UTC().Add(time.Duration(10) * time.Millisecond)
+	in40Milliseconds := time.Now().UTC().Add(time.Duration(40) * time.Millisecond)
+	in80Milliseconds := time.Now().UTC().Add(time.Duration(80) * time.Millisecond)
 
-	m.Push("a", valueOne, time.Now().Add(time.Duration(1)*time.Second))
-	m.Push("b", valueTwo, time.Now().Add(time.Duration(2)*time.Second))
-	m.Push("b", valueThree, time.Now().Add(time.Duration(3)*time.Second))
+	a := &HttpCacheEntry{IsCached: true, Expiration: in10Milliseconds}
+	b := &HttpCacheEntry{IsCached: false, Expiration: in40Milliseconds}
+	c := &HttpCacheEntry{IsCached: false, Expiration: in80Milliseconds}
 
-	assertExpiration := func(key string, aValue string, shouldExist bool) {
-		found, err := m.Get(key, func(a Value) bool {
-			return a.(TestEntry).a == aValue
+	m.Push("a", a)
+	m.Push("a", b)
+	m.Push("b", c)
+
+	assertExpiration := func(key string, isCached bool, shouldExist bool) {
+		m.GetOrLock(key, func(value *HttpCacheEntry) bool { return value.IsCached == isCached }, func(found *HttpCacheEntry) error {
+			if shouldExist {
+				assert.NotNil(t, found, "An entry that should exist was expired")
+			} else {
+				assert.Nil(t, found, "An entry that should be expired was not")
+			}
+			return nil
 		})
-		assert.NoError(t, err, "Got error while searching value")
-		if shouldExist {
-			assert.NotNil(t, found, "Searched key should not be nil, but it was")
-		} else {
-			assert.Nil(t, found, "Searched key should be nil but was not")
-		}
 	}
 
-	assertExpiration("a", "One", true)
-	assertExpiration("b", "Two", true)
-	assertExpiration("b", "Three", true)
+	assertExpiration("a", true, true)
+	assertExpiration("a", false, true)
+	assertExpiration("b", false, true)
 
-	time.Sleep(time.Duration(1100) * time.Millisecond)
+	time.Sleep(time.Duration(20) * time.Millisecond)
 
-	assertExpiration("a", "One", false)
-	assertExpiration("b", "Two", true)
-	assertExpiration("b", "Three", true)
+	assertExpiration("a", true, false)
+	assertExpiration("a", false, true)
+	assertExpiration("b", false, true)
 
-	time.Sleep(time.Duration(1100) * time.Millisecond)
+	time.Sleep(time.Duration(40) * time.Millisecond)
 
-	assertExpiration("a", "One", false)
-	assertExpiration("b", "Two", false)
-	assertExpiration("b", "Three", true)
+	assertExpiration("a", true, false)
+	assertExpiration("a", false, false)
+	assertExpiration("b", false, true)
 
-	time.Sleep(time.Duration(1100) * time.Millisecond)
+	time.Sleep(time.Duration(40) * time.Millisecond)
 
-	assertExpiration("a", "One", false)
-	assertExpiration("b", "Two", false)
-	assertExpiration("b", "Three", false)
+	assertExpiration("a", true, false)
+	assertExpiration("a", false, false)
+	assertExpiration("b", false, false)
 }

@@ -32,8 +32,8 @@ func Setup(c *caddy.Controller) error {
 	}
 
 	handler := CacheHandler{
-		Config: config,
-		Client: &MemoryStorage{},
+		Config:  config,
+		Storage: &MemoryStorage{},
 	}
 
 	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
@@ -42,7 +42,7 @@ func Setup(c *caddy.Controller) error {
 	})
 
 	c.OnStartup(func() error {
-		err = handler.Client.Setup()
+		err = handler.Storage.Setup()
 		if err != nil {
 			return err
 		}

@@ -64,6 +64,7 @@ Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
 - [x] Support `vary` header
 - [x] Add header with cache status
 - [x] Stream responses while fetching them from upstream
+- [x] Locking concurrent requests to the same path
 - [ ] Purge cache entries [#1](https://github.com/nicolasazrak/caddy-cache/issues/1)
 - [ ] Serve stale content if proxy is down
 - [ ] Punch hole cache

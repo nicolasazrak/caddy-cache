@@ -70,10 +70,12 @@ func getCacheableStatus(req *http.Request, res *StreamedRecorder, config *Config
 		return false, time.Now(), nil
 	}
 
+	// Sometimes the returned date is 31 Dec 1969
+	// So an expiration is given if it is after now
 	hasExplicitExpiration := expiration.After(time.Now().UTC())
 
-	if expiration.Before(time.Now().UTC().Add(time.Duration(1) * time.Second)) {
-		// If expiration is not specified or is before now use default MaxAge
+	if !hasExplicitExpiration {
+		// If expiration is not specified use default MaxAge
 		expiration = time.Now().UTC().Add(config.DefaultMaxAge)
 	}
 

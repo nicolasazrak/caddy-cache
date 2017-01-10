@@ -6,21 +6,49 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
+	"time"
 )
-
-type TestHandler struct {
-	timesCalled     int
-	ResponseBody    []byte
-	ResponseCode    int
-	ResponseError   error
-	ResponseHeaders http.Header
-}
 
 /* Helpers */
 
+type TestHandler struct {
+	maxConcurrencyLevel     int
+	currentConcurrencyLevel int
+	StatsLock               *sync.Mutex
+	Delay                   time.Duration
+	timesCalled             int
+	ResponseBody            []byte
+	ResponseCode            int
+	ResponseError           error
+	ResponseHeaders         http.Header
+}
+
+func (h *TestHandler) TimesCalled() int {
+	h.StatsLock.Lock()
+	defer h.StatsLock.Unlock()
+	return h.timesCalled
+}
+
+func (h *TestHandler) ConcurrencyLevel() int {
+	h.StatsLock.Lock()
+	defer h.StatsLock.Unlock()
+	return h.currentConcurrencyLevel
+}
+
+func (h *TestHandler) MaxConcurrencyLevel() int {
+	h.StatsLock.Lock()
+	defer h.StatsLock.Unlock()
+	return h.maxConcurrencyLevel
+}
+
 func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
-	h.timesCalled = h.timesCalled + 1
+	// Update concurrency stats
+	h.StatsLock.Lock()
+	h.timesCalled++
+	h.StatsLock.Unlock()
+
 	for k, values := range h.ResponseHeaders {
 		for _, v := range values {
 			w.Header().Add(k, v)
@@ -28,6 +56,22 @@ func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 	}
 	w.WriteHeader(h.ResponseCode)
 	w.Write(h.ResponseBody)
+
+	// Update concurrency stats
+	h.StatsLock.Lock()
+	h.currentConcurrencyLevel++
+	if h.currentConcurrencyLevel > h.maxConcurrencyLevel {
+		h.maxConcurrencyLevel = h.currentConcurrencyLevel
+	}
+	h.StatsLock.Unlock()
+	defer func() {
+		h.StatsLock.Lock()
+		h.currentConcurrencyLevel--
+		h.StatsLock.Unlock()
+	}()
+
+	time.Sleep(h.Delay)
+
 	return h.ResponseCode, h.ResponseError
 }
 
@@ -35,16 +79,18 @@ func buildBasicHandler() (*CacheHandler, *TestHandler) {
 	memory := MemoryStorage{}
 	memory.Setup()
 	backend := TestHandler{
+		StatsLock:    new(sync.Mutex),
+		Delay:        0,
 		ResponseCode: 200,
 	}
 
 	return &CacheHandler{
 		Config: &Config{
 			CacheRules:    []CacheRule{},
-			DefaultMaxAge: 10,
+			DefaultMaxAge: time.Duration(10) * time.Second,
 		},
-		Client: &memory,
-		Next:   &backend,
+		Storage: &memory,
+		Next:    &backend,
 	}, &backend
 }
 
@@ -64,15 +110,48 @@ func buildGetRequest(path string) *http.Request {
 	return buildGetRequestWithHeaders(path, http.Header{})
 }
 
-func makeNRequests(handler *CacheHandler, n int, req *http.Request) ([]*httptest.ResponseRecorder, error) {
-	responses := []*httptest.ResponseRecorder{}
+func makeNRequests(handler *CacheHandler, n int, req *http.Request) ([]*http.Response, error) {
+	responses := []*http.Response{}
 	for i := 0; i < n; i++ {
 		recorder := httptest.NewRecorder()
 		_, err := handler.ServeHTTP(recorder, req)
 		if err != nil {
-			return nil, err
+			panic(err)
 		}
-		responses = append(responses, recorder)
+		responses = append(responses, recorder.Result())
+	}
+	return responses, nil
+}
+
+type ConcurrentResult struct {
+	result *http.Response
+	err    error
+}
+
+func makeNConcurrentRequests(handler *CacheHandler, n int, req *http.Request) ([]*http.Response, error) {
+	channel := make(chan ConcurrentResult)
+	for i := 0; i < n; i++ {
+		go func(channel chan ConcurrentResult) {
+			recorder := httptest.NewRecorder()
+			_, err := handler.ServeHTTP(recorder, req)
+			if err != nil {
+				channel <- ConcurrentResult{
+					err: err,
+				}
+			}
+			channel <- ConcurrentResult{
+				result: recorder.Result(),
+			}
+		}(channel)
+	}
+
+	responses := []*http.Response{}
+	for i := 0; i < n; i++ {
+		res := <-channel
+		if res.err != nil {
+			panic(res.err)
+		}
+		responses = append(responses, res.result)
 	}
 	return responses, nil
 }
@@ -184,7 +263,7 @@ func TestAddAllHeaders(t *testing.T) {
 	responses, err := makeNRequests(handler, 2, buildGetRequest("http://somehost.com/assets/1"))
 	assert.NoError(t, err, "Failed doing requests")
 
-	assert.Equal(t, responseHeaders, responses[0].HeaderMap, "Cache didn't send same headers that backend originally sent")
+	assert.Equal(t, responseHeaders, responses[0].Header, "Cache didn't send same headers that backend originally sent")
 }
 
 func TestCacheByHeaders(t *testing.T) {
@@ -292,7 +371,7 @@ func TestStatusCacheSkip(t *testing.T) {
 	responses, err := makeNRequests(handler, 1, &http.Request{Method: "POST", URL: reqUrl})
 	assert.NoError(t, err, "Failed doing requests")
 
-	assert.Equal(t, []string{"skip"}, responses[0].HeaderMap["Cache-Status"])
+	assert.Equal(t, []string{"skip"}, responses[0].Header["Cache-Status"])
 }
 
 func TestStatusCacheHit(t *testing.T) {
@@ -305,11 +384,46 @@ func TestStatusCacheHit(t *testing.T) {
 
 	responses, err := makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
 	assert.NoError(t, err, "Failed doing requests")
-	assert.Equal(t, []string{"miss"}, responses[0].HeaderMap["Cache-Status"])
+	assert.Equal(t, []string{"miss"}, responses[0].Header["Cache-Status"])
 
 	responses, err = makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
 	assert.NoError(t, err, "Failed doing requests")
-	assert.Equal(t, []string{"hit"}, responses[0].HeaderMap["Cache-Status"])
+	assert.Equal(t, []string{"hit"}, responses[0].Header["Cache-Status"])
+}
+
+func TestExpiration(t *testing.T) {
+	handler, backend := buildBasicHandler()
+
+	backend.ResponseHeaders = http.Header{
+		"Cache-control": []string{"public; max-age=1"},
+	}
+
+	_, err := makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 1, backend.TimesCalled(), "Backend was not called")
+
+	time.Sleep(time.Duration(1010) * time.Millisecond)
+
+	_, err = makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 2, backend.TimesCalled(), "Backend should have been called twice")
+}
+
+// This is a good test to detect race conditions
+func TestFastExpiration(t *testing.T) {
+	handler, backend := buildBasicHandler()
+	handler.Config.DefaultMaxAge = 1
+	handler.Config.CacheRules = append(handler.Config.CacheRules, &PathCacheRule{Path: "/assets"})
+
+	_, err := makeNRequests(handler, 1, buildGetRequest("http://somehost.com/assets/1"))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 1, backend.TimesCalled(), "Backend was not called")
+
+	time.Sleep(time.Duration(1) * time.Millisecond)
+
+	_, err = makeNRequests(handler, 1, buildGetRequest("http://somehost.com/assets/1"))
+	assert.NoError(t, err, "Failed doing requests")
+	assert.Equal(t, 2, backend.TimesCalled(), "Backend should have been called twice")
 }
 
 func TestStatusCode(t *testing.T) {
@@ -322,14 +436,137 @@ func TestStatusCode(t *testing.T) {
 
 	responses, err := makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
 	assert.NoError(t, err, "Failed doing requests")
-	assert.Equal(t, 404, responses[0].Code)
+	assert.Equal(t, 404, responses[0].StatusCode)
 
 	responses, err = makeNRequests(handler, 1, buildGetRequest("http://somehost.com/"))
 	assert.NoError(t, err, "Failed doing requests")
-	assert.Equal(t, 404, responses[0].Code)
+	assert.Equal(t, 404, responses[0].StatusCode)
 }
 
-func TestDefaultCacheTime(t *testing.T) {
-	// TODO test this
-	// isCacheable, expiration := getCacheableStatus(req, res, config)
+/**
+ *
+ * Locking tests
+ *
+ */
+func TestLockOnCacheableReq(t *testing.T) {
+	handler, backend := buildBasicHandler()
+
+	backend.Delay = time.Duration(10) * time.Millisecond
+	backend.ResponseHeaders = http.Header{
+		"Cache-control": []string{"public; max-age=3600"},
+	}
+
+	go makeNConcurrentRequests(handler, 10, buildGetRequest("http://somehost.com/"))
+	time.Sleep(time.Duration(5) * time.Millisecond)
+	assert.Equal(t, 1, backend.ConcurrencyLevel(), "There are more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "There were more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.TimesCalled(), "Backend was called more times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 0, backend.ConcurrencyLevel(), "There are more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "There were more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.TimesCalled(), "Backend was called more times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 0, backend.ConcurrencyLevel(), "There are more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "There were more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.TimesCalled(), "Backend was called more times than expected")
+}
+
+func TestLockOnNonCacheableReq(t *testing.T) {
+	handler, backend := buildBasicHandler()
+
+	backend.Delay = time.Duration(10) * time.Millisecond
+	backend.ResponseHeaders = http.Header{
+		"Cache-control": []string{"private"},
+	}
+
+	go makeNConcurrentRequests(handler, 10, buildGetRequest("http://somehost.com/"))
+	time.Sleep(time.Duration(5) * time.Millisecond)
+	assert.Equal(t, 1, backend.ConcurrencyLevel(), "There are more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "There were more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.TimesCalled(), "Backend was called more times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 9, backend.ConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 9, backend.MaxConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 10, backend.TimesCalled(), "Backend was called different times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 0, backend.ConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 9, backend.MaxConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 10, backend.TimesCalled(), "Backend was called different times than expected")
+}
+
+func TestLockOnVaryHeaderRequests(t *testing.T) {
+	handler, backend := buildBasicHandler()
+
+	backend.Delay = time.Duration(10) * time.Millisecond
+	backend.ResponseHeaders = http.Header{
+		"Vary":          []string{"Accept-Encoding"},
+		"Cache-control": []string{"public; max-age=3600"},
+	}
+
+	go makeNConcurrentRequests(handler, 10, buildGetRequestWithHeaders("http://somehost.com/", http.Header{
+		"Accept-Encoding": {"gzip"},
+	}))
+	go makeNConcurrentRequests(handler, 10, buildGetRequestWithHeaders("http://somehost.com/", http.Header{
+		"Accept-Encoding": {"deflate"},
+	}))
+	go makeNConcurrentRequests(handler, 10, buildGetRequestWithHeaders("http://somehost.com/", http.Header{
+		"Accept-Encoding": {"somestrangeEncoding"},
+	}))
+
+	time.Sleep(time.Duration(5) * time.Millisecond)
+	assert.Equal(t, 1, backend.ConcurrencyLevel(), "There are more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "There were more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.TimesCalled(), "Backend was called more times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 1, backend.ConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 2, backend.TimesCalled(), "Backend was called different times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 1, backend.ConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 3, backend.TimesCalled(), "Backend was called different times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 0, backend.ConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 3, backend.TimesCalled(), "Backend was called different times than expected")
+}
+
+func TestLockOnMixedContent(t *testing.T) {
+	handler, backend := buildBasicHandler()
+
+	backend.Delay = time.Duration(10) * time.Millisecond
+	backend.ResponseHeaders = http.Header{
+		"Cache-control": []string{"private"},
+	}
+
+	go makeNConcurrentRequests(handler, 3, buildGetRequest("http://somehost.com/"))
+	time.Sleep(time.Duration(5) * time.Millisecond)
+	assert.Equal(t, 1, backend.ConcurrencyLevel(), "There are more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.MaxConcurrencyLevel(), "There were more conccurrent requests than expected")
+	assert.Equal(t, 1, backend.TimesCalled(), "Backend was called more times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 2, backend.ConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 2, backend.MaxConcurrencyLevel(), "The locking is incorrect")
+	assert.Equal(t, 3, backend.TimesCalled(), "Backend was called different times than expected")
+
+	time.Sleep(time.Duration(10) * time.Millisecond)
+	assert.Equal(t, 0, backend.ConcurrencyLevel(), "The locking is incorrect")
+
+	// After concurrent non cached requests ends
+	// The next one is cacheable
+	// So only one request should be made
+
+	backend.ResponseHeaders = http.Header{
+		"Cache-control": []string{"public; max-age=3600"},
+	}
+	makeNRequests(handler, 3, buildGetRequest("http://somehost.com/"))
+	assert.Equal(t, 4, backend.TimesCalled(), "Backend was called different times than expected")
 }
