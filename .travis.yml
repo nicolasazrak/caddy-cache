@@ -3,7 +3,9 @@ language: go
 go:
   - 1.7
 
-before_install:
-  - go get -d ./...
+cache:
+  directories:
+    - $GOPATH/src
+    - $GOPATH/pkg
 
 script: go test -v -race ./...
