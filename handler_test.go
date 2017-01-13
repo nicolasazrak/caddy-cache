@@ -72,6 +72,10 @@ func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 	time.Sleep(h.Delay)
 
+	w.Write([]byte("Hello :)"))
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 	return h.ResponseCode, h.ResponseError
 }
 

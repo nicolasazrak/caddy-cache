@@ -1,14 +1,14 @@
 package cache
 
 import (
-	"github.com/pquerna/cachecontrol"
+	"github.com/pquerna/cachecontrol/cacheobject"
 	"net/http"
 	"strings"
 	"time"
 )
 
 type CacheRule interface {
-	matches(*http.Request, *StreamedRecorder) bool
+	matches(*http.Request, int, *http.Header) bool
 }
 
 type PathCacheRule struct {
@@ -22,12 +22,12 @@ type HeaderCacheRule struct {
 
 /* This rules decide if the request must be cached and are added to handler config if are present in Caddyfile */
 
-func (rule *PathCacheRule) matches(req *http.Request, res *StreamedRecorder) bool {
+func (rule *PathCacheRule) matches(req *http.Request, statusCode int, respHeaders *http.Header) bool {
 	return strings.HasPrefix(req.URL.Path, rule.Path)
 }
 
-func (rule *HeaderCacheRule) matches(req *http.Request, res *StreamedRecorder) bool {
-	headerValue := res.HeaderMap.Get(rule.Header)
+func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHeaders *http.Header) bool {
+	headerValue := respHeaders.Get(rule.Header)
 	for _, expectedValue := range rule.Value {
 		if expectedValue == headerValue {
 			return true
@@ -52,8 +52,8 @@ func shouldUseCache(req *http.Request) bool {
 	return true
 }
 
-func getCacheableStatus(req *http.Request, res *StreamedRecorder, config *Config) (bool, time.Time, error) {
-	reasonsNotToCache, expiration, err := cachecontrol.CachableResponse(req, res.Result(), cachecontrol.Options{})
+func getCacheableStatus(req *http.Request, statusCode int, respHeaders http.Header, config *Config) (bool, time.Time, error) {
+	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, statusCode, respHeaders, false)
 
 	if err != nil {
 		return false, time.Now(), err
@@ -65,7 +65,7 @@ func getCacheableStatus(req *http.Request, res *StreamedRecorder, config *Config
 		return false, time.Now(), nil
 	}
 
-	varyHeaders, ok := res.HeaderMap["Vary"]
+	varyHeaders, ok := respHeaders["Vary"]
 	if ok && varyHeaders[0] == "*" {
 		return false, time.Now(), nil
 	}
@@ -81,14 +81,10 @@ func getCacheableStatus(req *http.Request, res *StreamedRecorder, config *Config
 
 	anyCacheRulesMatches := false
 	for _, rule := range config.CacheRules {
-		if rule.matches(req, res) {
+		if rule.matches(req, statusCode, &respHeaders) {
 			anyCacheRulesMatches = true
 			break
 		}
-	}
-
-	if err != nil {
-		return false, time.Now(), err
 	}
 
 	return anyCacheRulesMatches || hasExplicitExpiration, expiration, nil

@@ -1,9 +1,16 @@
 package cache
 
 import (
+	"errors"
+	"fmt"
 	"hash/crc32"
+	"io"
 	"math"
+	"math/rand"
+	"os"
+	"path"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -15,6 +22,8 @@ type MemoryStorage struct {
 	// This are the Read/Write locks shared by key
 	// So the prevents to lock all keys when only one is being written
 	mutex [bucketsSize]*sync.RWMutex
+
+	storagePath string
 }
 
 type CacheEntry struct {
@@ -61,7 +70,7 @@ func (s *MemoryStorage) getBucketIndexForKey(key string) uint32 {
 	return uint32(math.Mod(float64(crc32.ChecksumIEEE([]byte(key))), float64(bucketsSize)))
 }
 
-func (s *MemoryStorage) Push(key string, newEntry *HttpCacheEntry) error {
+func (s *MemoryStorage) Push(key string, newEntry *HttpCacheEntry) {
 	i := s.getBucketIndexForKey(key)
 	s.mutex[i].Lock()
 	defer s.mutex[i].Unlock()
@@ -84,8 +93,16 @@ func (s *MemoryStorage) Push(key string, newEntry *HttpCacheEntry) error {
 
 	// Launch a new go routine that will expire the content
 	go s.expire(key, newEntry.Expiration)
+}
 
-	return nil
+var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func randSeq(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
 }
 
 func (s *MemoryStorage) Setup() error {
@@ -93,7 +110,26 @@ func (s *MemoryStorage) Setup() error {
 		s.mutex[i] = new(sync.RWMutex)
 		s.contents[i] = make(map[string]*CacheEntry)
 	}
-	return nil
+
+	s.storagePath = path.Join("/tmp", "caddy-cache", randSeq(10))
+	return os.MkdirAll(s.storagePath, 0777)
+}
+
+func (s *MemoryStorage) NewEntry(key string) (io.ReadWriter, error) {
+	return os.OpenFile(path.Join(s.storagePath, randSeq(15)), os.O_CREATE|os.O_RDWR, 0777)
+}
+
+func (s *MemoryStorage) CloseEntry(entry io.ReadWriter) ([]byte, error) {
+	file, ok := entry.(*os.File)
+	if !ok {
+		return nil, errors.New("Could not convert file again")
+	}
+	info, err := file.Stat()
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil, err
+	}
+	return syscall.Mmap(int(file.Fd()), 0, int(info.Size()), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 }
 
 func (s *MemoryStorage) expire(key string, expiration time.Time) {
