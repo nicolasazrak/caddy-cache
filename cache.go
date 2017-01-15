@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -204,12 +205,12 @@ func NewMMapStorage(path string) *MMapStorage {
 }
 
 func (s *MMapStorage) Setup() error {
-	s.path = path.Join("/tmp", "caddy-cache", randSeq(10))
-	return os.MkdirAll(s.path, 0777)
+	return os.MkdirAll(s.path, 0700)
 }
 
 func (s *MMapStorage) NewEntry(key string) (io.ReadWriter, error) {
-	return os.OpenFile(path.Join(s.path, randSeq(15)), os.O_CREATE|os.O_RDWR, 0777)
+	filename := path.Join(s.path, base32.StdEncoding.EncodeToString([]byte(key))+randSeq(10))
+	return os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0600)
 }
 
 func (s *MMapStorage) CloseEntry(entry io.ReadWriter) ([]byte, error) {

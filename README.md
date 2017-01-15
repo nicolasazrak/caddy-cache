@@ -25,7 +25,9 @@ For more advanced usages you can use the following parameters:
 - `match:` Sets rules to make responses cacheable, if any matches and the response is cacheable by https://tools.ietf.org/html/rfc7234 then it will be stored. Supported options are:
     - `path`: check if the request starts with this path
     - `header`: checks if the response contains a header with one of the specified values
-
+- `storage`: There are two storage engines:
+    - `̀mmap` It stores the files contents in a file in /tmp You can specify where to store the files. Keep in mind that it is not persistent. Every time the server is restarted the files will be created again.
+    - `memory` It stores the files contents in a byte array in memory
 
 ```
 caddy.test {
@@ -37,6 +39,7 @@ caddy.test {
         }
         default_max_age 10
         status_header X-Cache-Status
+        storage mmap /tmp/caddy-cache
     }
 }
 ```
@@ -65,10 +68,10 @@ Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
 - [x] Add header with cache status
 - [x] Stream responses while fetching them from upstream
 - [x] Locking concurrent requests to the same path
+- [x] File disk storage for larger objects
 - [ ] Purge cache entries [#1](https://github.com/nicolasazrak/caddy-cache/issues/1)
 - [ ] Serve stale content if proxy is down
 - [ ] Punch hole cache
-- [ ] File disk storage for larger objects
 - [ ] Do conditional requests to revalidate data
 - [ ] Max entries size
 - [ ] Add a configuration to not use query params in cache key

@@ -19,14 +19,17 @@ func TestParsingConfig(t *testing.T) {
 		expect    Config
 	}{
 		{"cache", false, Config{
+			Storage:       NewMMapStorage("/tmp/caddy-cache"),
 			CacheRules:    []CacheRule{},
 			DefaultMaxAge: DEFAULT_MAX_AGE,
 		}},
 		{"cache {\n match { \n path /assets \n} }", false, Config{
+			Storage:       NewMMapStorage("/tmp/caddy-cache"),
 			CacheRules:    []CacheRule{&cacheAssetsRule},
 			DefaultMaxAge: DEFAULT_MAX_AGE,
 		}},
 		{"cache {\n match { \n path /assets \n path /api  \n} \n}", false, Config{
+			Storage: NewMMapStorage("/tmp/caddy-cache"),
 			CacheRules: []CacheRule{
 				&cacheAssetsRule,
 				&PathCacheRule{Path: "/api"},
@@ -34,14 +37,17 @@ func TestParsingConfig(t *testing.T) {
 			DefaultMaxAge: DEFAULT_MAX_AGE,
 		}},
 		{"cache {\n match { \n path /assets \n } \n default_max_age 30 \n}", false, Config{
+			Storage:       NewMMapStorage("/tmp/caddy-cache"),
 			CacheRules:    []CacheRule{&cacheAssetsRule},
 			DefaultMaxAge: time.Second * time.Duration(30),
 		}},
 		{"cache {\n default_max_age 30 \n match { \n path /public \n } \n}", false, Config{
+			Storage:       NewMMapStorage("/tmp/caddy-cache"),
 			CacheRules:    []CacheRule{&PathCacheRule{Path: "/public"}},
 			DefaultMaxAge: time.Second * time.Duration(30),
 		}},
 		{"cache {\n match { header Content-Type image/png image/gif \n path /assets \n } \n}", false, Config{
+			Storage: NewMMapStorage("/tmp/caddy-cache"),
 			CacheRules: []CacheRule{
 				&HeaderCacheRule{
 					Header: "Content-Type",
@@ -52,8 +58,19 @@ func TestParsingConfig(t *testing.T) {
 			DefaultMaxAge: DEFAULT_MAX_AGE,
 		}},
 		{"cache {\n status_header X-Custom-Header \n}", false, Config{
+			Storage:       NewMMapStorage("/tmp/caddy-cache"),
 			CacheRules:    []CacheRule{},
 			StatusHeader:  "X-Custom-Header",
+			DefaultMaxAge: DEFAULT_MAX_AGE,
+		}},
+		{"cache {\n storage mmap /some/path \n}", false, Config{
+			Storage:       NewMMapStorage("/some/path"),
+			CacheRules:    []CacheRule{},
+			DefaultMaxAge: DEFAULT_MAX_AGE,
+		}},
+		{"cache {\n storage memory \n}", false, Config{
+			Storage:       NewMemoryStorage(),
+			CacheRules:    []CacheRule{},
 			DefaultMaxAge: DEFAULT_MAX_AGE,
 		}},
 		{"cache {\n status_header aheader another \n}", true, Config{}},    // status_header with invalid number of parameters
@@ -65,6 +82,8 @@ func TestParsingConfig(t *testing.T) {
 		{"cache {\n match { \n path / ea \n} \n}", true, Config{}},         // Invalid number of parameters in match
 		{"cache {\n match { \n unknown \n} \n}", true, Config{}},           // Unknown condition in match
 		{"cache {\n match { \n \n}  invalid \n}", true, Config{}},          // Unknown "invalid"
+		{"cache {\n storage pepe \n}", true, Config{}},                     // Unknown storage "pepe"
+		{"cache {\n storage mmap \n}", true, Config{}},                     // Missing path
 	}
 
 	for i, test := range tests {

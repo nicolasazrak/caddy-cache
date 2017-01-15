@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
+	"path"
 	"strconv"
 	"time"
 )
@@ -11,6 +12,7 @@ import (
 const DEFAULT_MAX_AGE = time.Duration(60) * time.Second
 
 type Config struct {
+	Storage       Storage
 	CacheRules    []CacheRule
 	DefaultMaxAge time.Duration
 	StatusHeader  string
@@ -33,7 +35,7 @@ func Setup(c *caddy.Controller) error {
 
 	handler := CacheHandler{
 		Config: config,
-		Cache:  &Cache{},
+		Cache:  NewCache(config.Storage),
 	}
 
 	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
@@ -55,6 +57,7 @@ func Setup(c *caddy.Controller) error {
 
 func cacheParse(c *caddy.Controller) (*Config, error) {
 	config := Config{
+		Storage:       NewMMapStorage(path.Join("/", "tmp", "caddy-cache")),
 		CacheRules:    []CacheRule{},
 		DefaultMaxAge: DEFAULT_MAX_AGE,
 		StatusHeader:  "",
@@ -80,6 +83,22 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 					return nil, err
 				}
 				config.CacheRules = cacheRules
+			}
+		case "storage":
+			args := c.RemainingArgs()
+			if len(args) == 0 {
+				return nil, c.Err("Invalid storage directive, specify: memory or mmap")
+			}
+			switch args[0] {
+			case "mmap":
+				if len(args) != 2 {
+					return nil, c.Err("Invalid mmap configs")
+				}
+				config.Storage = NewMMapStorage(args[1])
+			case "memory":
+				config.Storage = NewMemoryStorage()
+			default:
+				return nil, c.Err("Unknown storage engine " + args[0])
 			}
 		case "default_max_age":
 			args := c.RemainingArgs()
