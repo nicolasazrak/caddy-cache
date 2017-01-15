@@ -9,31 +9,6 @@ import (
 	"time"
 )
 
-type Request struct {
-	HeaderMap http.Header // Headers are the only useful information
-}
-
-type Response struct {
-	Code      int // the HTTP response code from WriteHeader
-	Body      []byte
-	HeaderMap http.Header // the HTTP response headers
-}
-
-type HttpCacheEntry struct {
-	Expiration time.Time
-	Request    *Request
-	Response   *Response
-}
-
-// IsCached might not be the better name
-// It means that the response can be sent to the client
-// Because not only public responses are stored, private too.
-// So if this is false, it means a request to upstream is needed
-func (entry *HttpCacheEntry) IsCached() bool {
-	// TODO what happens with HEAD requests ??
-	return entry.Response != nil && entry.Response.Body != nil
-}
-
 type CacheHandler struct {
 	Config *Config
 	Cache  *Cache
@@ -47,7 +22,7 @@ func respond(response *Response, w http.ResponseWriter) {
 		}
 	}
 	w.WriteHeader(response.Code)
-	w.Write(response.Body)
+	w.Write(response.Body.Bytes())
 }
 
 /**
@@ -110,7 +85,7 @@ func (handler *CacheHandler) HandleCachedResponse(w http.ResponseWriter, r *http
 	return previous.Response.Code
 }
 
-func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *http.Request) (int, error) {
+func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *http.Request) (*HttpCacheEntry, error) {
 	key := getKey(r)
 	rec := NewStreamedRecorder(w)
 
@@ -144,21 +119,22 @@ func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *h
 		entry.Expiration = expirationTime
 
 		// Create the new entry, potentially creating a new file in disk
-		writer, err := handler.Cache.NewEntry(key)
+		writer, err := handler.Cache.NewContent(key)
 		if err != nil {
 			fmt.Println("Ups", err)
 			panic(err)
 		}
 
 		// Update the body writer, next Writes will go to the created writer
-		return rec.UpdateBodyWriter(writer)
+		rec.UpdateBodyWriter(writer)
+		return nil
 	})
 
 	// Send the status header and server the request from upstream
 	handler.AddStatusHeaderIfConfigured(w, "miss")
 	_, err := handler.Next.ServeHTTP(rec, r)
 	if err != nil {
-		return http.StatusInternalServerError, err
+		return nil, err
 	}
 
 	result, Body := rec.Result()
@@ -169,16 +145,11 @@ func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *h
 
 	// If the body was recorded, close the body and update the entry
 	if Body != nil {
-		BodyBytes, err := handler.Cache.CloseEntry(Body)
-		if err != nil {
-			return http.StatusInternalServerError, err
-		}
-		entry.Response.Body = BodyBytes
+		Body.Close()
+		entry.Response.Body = Body
 	}
 
-	handler.Cache.Push(key, entry)
-
-	return result.StatusCode, nil
+	return entry, nil
 }
 
 func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
@@ -187,19 +158,19 @@ func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (i
 		return handler.Next.ServeHTTP(w, r)
 	}
 
-	returnedStatusCode := 500 // If this is not updated means there was an error
-	err := handler.Cache.GetOrLock(getKey(r), matchesRequest(r), func(previous *HttpCacheEntry) error {
+	returnedStatusCode := http.StatusInternalServerError // If this is not updated means there was an error
+	err := handler.Cache.GetOrSet(getKey(r), matchesRequest(r), func(previous *HttpCacheEntry) (*HttpCacheEntry, error) {
 		if previous == nil || !previous.IsCached() {
-			statusCode, err := handler.HandleNonCachedResponse(w, r)
+			newEntry, err := handler.HandleNonCachedResponse(w, r)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			returnedStatusCode = statusCode
-			return nil
+			returnedStatusCode = newEntry.Response.Code
+			return newEntry, nil
 		}
 
 		returnedStatusCode = handler.HandleCachedResponse(w, r, previous)
-		return nil
+		return nil, nil
 	})
 	return returnedStatusCode, err
 }

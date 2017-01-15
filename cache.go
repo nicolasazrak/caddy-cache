@@ -1,39 +1,44 @@
 package cache
 
 import (
-	"bytes"
-	"encoding/base32"
-	"errors"
-	"fmt"
 	"hash/crc32"
-	"io"
 	"math"
-	"math/rand"
-	"os"
-	"path"
 	"sync"
-	"syscall"
 	"time"
 )
 
 const bucketsSize = 256
 
 type Cache struct {
-	contents [bucketsSize]map[string]*CacheEntry
-
 	// This are the Read/Write locks shared by key
 	// So the prevents to lock all keys when only one is being written
-	mutex [bucketsSize]*sync.RWMutex
-
-	storage Storage
+	entriesLock [bucketsSize]*sync.RWMutex
+	entries     [bucketsSize]map[string]*CacheEntry
+	storage     Storage
 }
 
 type CacheEntry struct {
 	// This lock is used only to prevent concurrent access to the same upstream
 	// It is not meant to protect access to values, the `mutex` of storage is used for that.
-	lock *sync.Mutex
+	valuesLock *sync.RWMutex
+	values     []*Value
+}
 
-	values []*HttpCacheEntry // Values are each previous request stored
+type Value struct {
+	expiration time.Time
+
+	// This lock prevents deleting the content on disk
+	// While there is a request reading from it
+	refLock *sync.RWMutex
+
+	// ref is a previous request/response stored
+	// This can easily be a Clear() interface but
+	// Using HttpCacheEntry prevents having to cast
+	// everywhere. This is because the lock of the map
+	// Is used to prevent deleting it from the map
+	// But the lock is released after the entry is read from the map
+	// It does not mean that some go routine is not using it
+	ref *HttpCacheEntry
 }
 
 func NewCache(storage Storage) *Cache {
@@ -42,84 +47,107 @@ func NewCache(storage Storage) *Cache {
 
 func (s *Cache) Setup() error {
 	for i := 0; i < int(bucketsSize); i++ {
-		s.mutex[i] = new(sync.RWMutex)
-		s.contents[i] = make(map[string]*CacheEntry)
+		s.entriesLock[i] = new(sync.RWMutex)
+		s.entries[i] = make(map[string]*CacheEntry)
 	}
 
 	return s.storage.Setup()
 }
 
-func (s *Cache) Clean() error {
-	return s.storage.Clean()
+func (s *Cache) Clear() error {
+	// TODO
+	return nil
+	// return s.storage.Clean()
 }
 
 func (s *Cache) getEntry(key string) *CacheEntry {
 	i := s.getBucketIndexForKey(key)
 
-	s.mutex[i].Lock()
-	entry, ok := s.contents[i][key]
+	s.entriesLock[i].Lock()
+	entry, ok := s.entries[i][key]
 	if !ok {
-		s.contents[i][key] = &CacheEntry{
-			values: []*HttpCacheEntry{},
-			lock:   new(sync.Mutex),
+		s.entries[i][key] = &CacheEntry{
+			values:     []*Value{},
+			valuesLock: new(sync.RWMutex),
 		}
-		entry = s.contents[i][key]
+		entry = s.entries[i][key]
 	}
-	s.mutex[i].Unlock()
+	s.entriesLock[i].Unlock()
 
 	return entry
 }
 
-func (s *Cache) GetOrLock(key string, condition func(*HttpCacheEntry) bool, handler func(*HttpCacheEntry) error) error {
+/**
+ * Given a key and a matcher it fetches the searched value.
+ * If it exists it calls the handler with that value.
+ * If it doesn't it calls the value with nil and the return value
+ * of the handler will be pushed.
+ */
+func (s *Cache) GetOrSet(key string, condition func(*HttpCacheEntry) bool, handler func(*HttpCacheEntry) (*HttpCacheEntry, error)) error {
 	entry := s.getEntry(key)
-	entry.lock.Lock()
+
+	// While iterating throw the values is important that nobody else writes on it
+	// Until the resource is found in the entries' list or is fetched
+	entry.valuesLock.Lock()
 
 	for _, value := range entry.values {
-		if condition(value) {
-			entry.lock.Unlock()
-			return handler(value)
+		if condition(value.ref) {
+			// The searched resource if found, the list can be unlocked
+			entry.valuesLock.Unlock()
+
+			// Read lock the content so it is not expired while using it in the handler
+			value.refLock.RLock()
+			//noinspection GoDeferInLoop
+			defer value.refLock.RUnlock()
+
+			// Call the handler
+			newValue, err := handler(value.ref)
+
+			// The case when newValue is not nil is when a previous time called
+			// was not cacheable but now it is. Should rarely happen
+			if err == nil && newValue != nil {
+				entry.valuesLock.Lock()
+				s.unsafePush(key, entry, newValue)
+				entry.valuesLock.Unlock()
+			}
+
+			return err
 		}
 	}
 
-	defer entry.lock.Unlock()
-	return handler(nil)
+	// If the entry is not on the list wait until it is fetched from upstream
+	defer entry.valuesLock.Unlock()
+
+	newValue, err := handler(nil)
+	if err != nil || newValue == nil {
+		return err
+	}
+
+	s.unsafePush(key, entry, newValue)
+	return nil
+}
+
+func (s *Cache) unsafePush(key string, entry *CacheEntry, newValue *HttpCacheEntry) {
+	value := &Value{
+		ref:        newValue,
+		refLock:    new(sync.RWMutex),
+		expiration: newValue.Expiration,
+	}
+
+	// This pushes the new entry on top of the slice
+	// This is useful to use the most recent values first
+	entry.values = append([]*Value{value}, entry.values...)
+
+	// Launch a new go routine that will expire the content
+	go s.expire(key, newValue.Expiration)
 }
 
 func (s *Cache) getBucketIndexForKey(key string) uint32 {
 	return uint32(math.Mod(float64(crc32.ChecksumIEEE([]byte(key))), float64(bucketsSize)))
 }
 
-func (s *Cache) Push(key string, newEntry *HttpCacheEntry) {
-	i := s.getBucketIndexForKey(key)
-	s.mutex[i].Lock()
-	defer s.mutex[i].Unlock()
-
-	entry, ok := s.contents[i][key]
-	if !ok {
-		s.contents[i][key] = &CacheEntry{
-			lock: new(sync.Mutex),
-		}
-		entry = s.contents[i][key]
-	}
-
-	if ok {
-		// This pushes the new entry on top of the slice
-		// This is useful to use the most recent values first
-		entry.values = append([]*HttpCacheEntry{newEntry}, entry.values...)
-	} else {
-		entry.values = []*HttpCacheEntry{newEntry}
-	}
-
-	// Launch a new go routine that will expire the content
-	go s.expire(key, newEntry.Expiration)
-}
-
-func (s *Cache) NewEntry(key string) (io.ReadWriter, error) {
-	return s.storage.NewEntry(key)
-}
-
-func (s *Cache) CloseEntry(entry io.ReadWriter) ([]byte, error) {
-	return s.storage.CloseEntry(entry)
+func (s *Cache) NewContent(key string) (StorageContent, error) {
+	return s.storage.NewContent(key)
 }
 
 func (s *Cache) expire(key string, expiration time.Time) {
@@ -128,105 +156,35 @@ func (s *Cache) expire(key string, expiration time.Time) {
 
 	// Get bucket and lock
 	bucket := s.getBucketIndexForKey(key)
-	s.mutex[bucket].Lock()
-	defer s.mutex[bucket].Unlock()
+	s.entriesLock[bucket].Lock()
+	entry, ok := s.entries[bucket][key]
+	s.entriesLock[bucket].Unlock()
 
-	entry := s.contents[bucket][key]
+	if !ok {
+		// Possible bug, how it ended here?
+		return
+	}
 
-	entry.lock.Lock()
-	defer entry.lock.Unlock()
+	entry.valuesLock.Lock()
+	defer entry.valuesLock.Unlock()
 
 	// This should prevent creating a new array
 	// Uses the same slice
-	notExpiredContent := entry.values[:0]
-	for _, entry := range entry.values {
+	notExpiredValues := entry.values[:0]
+	for _, value := range entry.values {
 		// Check which entry for the key is expired
-		if entry.Expiration.After(time.Now().UTC()) {
-			notExpiredContent = append(notExpiredContent, entry)
+		if value.expiration.After(time.Now().UTC()) {
+			notExpiredValues = append(notExpiredValues, value)
+		} else {
+			// Clear the content in other go routine
+			// If it is being red it can block others
+			go func(value *Value) {
+				// Get lock to prevent any other go routine read from it
+				value.refLock.Lock()
+				// Delete it if it is on disk
+				value.ref.Clear()
+			}(value) // Copying the pointer to the go routine is required to avoid reading an invalid value
 		}
 	}
-	entry.values = notExpiredContent
-}
-
-/* Storage */
-type Storage interface {
-	Setup() error
-	Clean() error
-	NewEntry(string) (io.ReadWriter, error)
-	CloseEntry(io.ReadWriter) ([]byte, error)
-}
-
-/* Memory Storage */
-
-type MemoryStorage struct{}
-
-func NewMemoryStorage() *MemoryStorage {
-	return &MemoryStorage{}
-}
-
-func (s *MemoryStorage) Setup() error {
-	return nil
-}
-
-func (s *MemoryStorage) Clean() error {
-	return nil
-}
-
-func (s *MemoryStorage) NewEntry(key string) (io.ReadWriter, error) {
-	return new(bytes.Buffer), nil
-}
-
-func (s *MemoryStorage) CloseEntry(entry io.ReadWriter) ([]byte, error) {
-	buff, ok := entry.(*bytes.Buffer)
-	if !ok {
-		return nil, errors.New("MemoryStorage: Could not convert entry to buffer again")
-	}
-	return buff.Bytes(), nil
-}
-
-/* MMap Storage */
-
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-func randSeq(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
-}
-
-type MMapStorage struct {
-	path string
-}
-
-func NewMMapStorage(path string) *MMapStorage {
-	return &MMapStorage{path: path}
-}
-
-func (s *MMapStorage) Setup() error {
-	return os.MkdirAll(s.path, 0700)
-}
-
-func (s *MMapStorage) NewEntry(key string) (io.ReadWriter, error) {
-	filename := path.Join(s.path, base32.StdEncoding.EncodeToString([]byte(key))+randSeq(10))
-	return os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0600)
-}
-
-func (s *MMapStorage) CloseEntry(entry io.ReadWriter) ([]byte, error) {
-	file, ok := entry.(*os.File)
-	if !ok {
-		return nil, errors.New("MMapStorage: Could not convert entry file again")
-	}
-	info, err := file.Stat()
-	if err != nil {
-		fmt.Println(err.Error())
-		return nil, err
-	}
-	return syscall.Mmap(int(file.Fd()), 0, int(info.Size()), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
-}
-
-func (s *MMapStorage) Clean() error {
-	// TODO clean folder
-	return nil
+	entry.values = notExpiredValues
 }

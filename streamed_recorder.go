@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"io"
 	"net/http"
 )
 
@@ -14,9 +13,9 @@ import (
  */
 
 type StreamedRecorder struct {
-	Code      int           // the HTTP response code from WriteHeader
-	HeaderMap http.Header   // the HTTP response headers
-	Body      io.ReadWriter // if non-nil, the bytes.Buffer to append written data to
+	Code      int         // the HTTP response code from WriteHeader
+	HeaderMap http.Header // the HTTP response headers
+	Body      StorageContent
 	Flushed   bool
 
 	result      *http.Response // cache of Result's return value
@@ -97,15 +96,8 @@ func (rw *StreamedRecorder) Write(buf []byte) (int, error) {
 	return rw.w.Write(buf)
 }
 
-func (rw *StreamedRecorder) UpdateBodyWriter(bw io.ReadWriter) error {
-	if rw.Body != nil && bw != nil {
-		_, err := io.Copy(bw, rw.Body)
-		if err != nil {
-			return err
-		}
-	}
+func (rw *StreamedRecorder) UpdateBodyWriter(bw StorageContent) {
 	rw.Body = bw
-	return nil
 }
 
 // WriteHeader sets rw.Code. After it is called, changing rw.Header
@@ -158,7 +150,7 @@ func (rw *StreamedRecorder) SetFirstWriteListener(fn func(int, http.Header) erro
 // did a write.
 //
 // Result must only be called after the handler has finished running.
-func (rw *StreamedRecorder) Result() (*http.Response, io.ReadWriter) {
+func (rw *StreamedRecorder) Result() (*http.Response, StorageContent) {
 	if rw.result != nil {
 		return rw.result, nil
 	}

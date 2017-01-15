@@ -3,6 +3,7 @@ package cache
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,7 +15,6 @@ import (
 /* Helpers */
 
 type TestHandler struct {
-	returnedBody            string
 	maxConcurrencyLevel     int
 	currentConcurrencyLevel int
 	StatsLock               *sync.Mutex
@@ -56,7 +56,6 @@ func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 		}
 	}
 	w.WriteHeader(h.ResponseCode)
-	w.Write(h.ResponseBody)
 
 	// Update concurrency stats
 	h.StatsLock.Lock()
@@ -73,8 +72,8 @@ func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 	time.Sleep(h.Delay)
 
-	if h.returnedBody != "" {
-		w.Write([]byte(h.returnedBody))
+	if h.ResponseBody != nil {
+		w.Write(h.ResponseBody)
 	}
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
@@ -82,11 +81,9 @@ func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 	return h.ResponseCode, h.ResponseError
 }
 
-func buildBasicHandler() (*CacheHandler, *TestHandler) {
-	cache := NewCache(NewMemoryStorage())
-	cache.Setup()
+func buildHandlerWithCache(cache *Cache) (*CacheHandler, *TestHandler) {
 	backend := TestHandler{
-		returnedBody: "Hello :)",
+		ResponseBody: []byte("Hello :)"),
 		StatsLock:    new(sync.Mutex),
 		Delay:        0,
 		ResponseCode: 200,
@@ -100,6 +97,12 @@ func buildBasicHandler() (*CacheHandler, *TestHandler) {
 		Cache: cache,
 		Next:  &backend,
 	}, &backend
+}
+
+func buildBasicHandler() (*CacheHandler, *TestHandler) {
+	cache := NewCache(NewMemoryStorage())
+	cache.Setup()
+	return buildHandlerWithCache(cache)
 }
 
 func buildGetRequestWithHeaders(path string, headers http.Header) *http.Request {
@@ -577,4 +580,30 @@ func TestLockOnMixedContent(t *testing.T) {
 	}
 	makeNRequests(handler, 3, buildGetRequest("http://somehost.com/"))
 	assert.Equal(t, 4, backend.TimesCalled(), "Backend was called different times than expected")
+}
+
+/* Mmap test */
+func TestMMapWritesToDisk(t *testing.T) {
+	cache := NewCache(NewMMapStorage("/tmp/caddy-cache-tests"))
+	cache.Setup()
+	handler, backend := buildHandlerWithCache(cache)
+
+	content := []byte("Some content")
+	backend.ResponseBody = content
+	backend.ResponseHeaders = http.Header{"Cache-control": []string{"public; max-age=1"}}
+
+	req := buildGetRequest("http://somehost.com/")
+	_, err := makeNRequests(handler, 1, req)
+	assert.NoError(t, err, "Failed doing requests")
+
+	err = cache.GetOrSet(getKey(req), func(entry *HttpCacheEntry) bool { return true }, func(entry *HttpCacheEntry) (*HttpCacheEntry, error) {
+		assert.NotNil(t, entry, "Entry was not found")
+		assert.NotNil(t, entry.Response.Body, "Body was not saved")
+		fileName := entry.Response.Body.(*MMapContent).file.Name()
+		savedContent, err := ioutil.ReadFile(fileName)
+		assert.NoError(t, err, "Failed reading disk response")
+		assert.Equal(t, content, savedContent, "Content on disk is not the same")
+		return nil, nil
+	})
+	assert.NoError(t, err, "There was an error in GetOrLock")
 }
