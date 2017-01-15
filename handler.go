@@ -35,9 +35,9 @@ func (entry *HttpCacheEntry) IsCached() bool {
 }
 
 type CacheHandler struct {
-	Config  *Config
-	Storage *MemoryStorage
-	Next    httpserver.Handler
+	Config *Config
+	Cache  *Cache
+	Next   httpserver.Handler
 }
 
 func respond(response *Response, w http.ResponseWriter) {
@@ -144,7 +144,7 @@ func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *h
 		entry.Expiration = expirationTime
 
 		// Create the new entry, potentially creating a new file in disk
-		writer, err := handler.Storage.NewEntry(key)
+		writer, err := handler.Cache.NewEntry(key)
 		if err != nil {
 			fmt.Println("Ups", err)
 			panic(err)
@@ -169,14 +169,14 @@ func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *h
 
 	// If the body was recorded, close the body and update the entry
 	if Body != nil {
-		BodyBytes, err := handler.Storage.CloseEntry(Body)
+		BodyBytes, err := handler.Cache.CloseEntry(Body)
 		if err != nil {
 			return http.StatusInternalServerError, err
 		}
 		entry.Response.Body = BodyBytes
 	}
 
-	handler.Storage.Push(key, entry)
+	handler.Cache.Push(key, entry)
 
 	return result.StatusCode, nil
 }
@@ -188,7 +188,7 @@ func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (i
 	}
 
 	returnedStatusCode := 500 // If this is not updated means there was an error
-	err := handler.Storage.GetOrLock(getKey(r), matchesRequest(r), func(previous *HttpCacheEntry) error {
+	err := handler.Cache.GetOrLock(getKey(r), matchesRequest(r), func(previous *HttpCacheEntry) error {
 		if previous == nil || !previous.IsCached() {
 			statusCode, err := handler.HandleNonCachedResponse(w, r)
 			if err != nil {

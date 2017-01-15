@@ -11,10 +11,10 @@ func alwaysTrue(a *HttpCacheEntry) bool {
 }
 
 func TestGetSet(t *testing.T) {
-	m := MemoryStorage{}
+	m := NewCache(NewMemoryStorage())
 	m.Setup()
 	a := &HttpCacheEntry{
-		IsCached:   true,
+		Response:   nil,
 		Expiration: time.Now().Add(time.Duration(5) * time.Second),
 	}
 
@@ -28,10 +28,10 @@ func TestGetSet(t *testing.T) {
 }
 
 func TestGetNonExistentKey(t *testing.T) {
-	m := MemoryStorage{}
+	m := NewCache(NewMemoryStorage())
 	m.Setup()
 	a := &HttpCacheEntry{
-		IsCached:   true,
+		Response:   nil,
 		Expiration: time.Now().Add(time.Duration(5) * time.Second),
 	}
 
@@ -45,25 +45,25 @@ func TestGetNonExistentKey(t *testing.T) {
 }
 
 func TestPushManyValuesInSameKey(t *testing.T) {
-	m := MemoryStorage{}
+	m := NewCache(NewMemoryStorage())
 	m.Setup()
 	inFiveSeconds := time.Now().UTC().Add(time.Duration(5) * time.Second)
 	inTwoSeconds := time.Now().UTC().Add(time.Duration(2) * time.Second)
 
-	a := &HttpCacheEntry{IsCached: true, Expiration: inFiveSeconds}
-	b := &HttpCacheEntry{IsCached: false, Expiration: inTwoSeconds}
+	a := &HttpCacheEntry{Response: nil, Expiration: inFiveSeconds}
+	b := &HttpCacheEntry{Response: &Response{}, Expiration: inTwoSeconds}
 
 	m.Push("a", a)
 	m.Push("a", b)
 
-	err := m.GetOrLock("a", func(a *HttpCacheEntry) bool { return a.IsCached }, func(found *HttpCacheEntry) error {
+	err := m.GetOrLock("a", func(a *HttpCacheEntry) bool { return a.Response == nil }, func(found *HttpCacheEntry) error {
 		assert.Equal(t, a, found, "Got another value")
 		return nil
 	})
 
 	assert.NoError(t, err, "Error while getting first value of a")
 
-	err = m.GetOrLock("a", func(b *HttpCacheEntry) bool { return !b.IsCached }, func(found *HttpCacheEntry) error {
+	err = m.GetOrLock("a", func(b *HttpCacheEntry) bool { return b.Response != nil }, func(found *HttpCacheEntry) error {
 		assert.Equal(t, b, found, "Got another value")
 		return nil
 	})
@@ -71,13 +71,13 @@ func TestPushManyValuesInSameKey(t *testing.T) {
 }
 
 func TestPushManyValuesToDifferentKeys(t *testing.T) {
-	m := MemoryStorage{}
+	m := NewCache(NewMemoryStorage())
 	m.Setup()
 	inFiveSeconds := time.Now().UTC().Add(time.Duration(5) * time.Second)
 	inTwoSeconds := time.Now().UTC().Add(time.Duration(2) * time.Second)
 
-	a := &HttpCacheEntry{IsCached: true, Expiration: inFiveSeconds}
-	b := &HttpCacheEntry{IsCached: false, Expiration: inTwoSeconds}
+	a := &HttpCacheEntry{Response: nil, Expiration: inFiveSeconds}
+	b := &HttpCacheEntry{Response: &Response{}, Expiration: inTwoSeconds}
 
 	m.Push("a", a)
 	m.Push("b", b)
@@ -96,22 +96,22 @@ func TestPushManyValuesToDifferentKeys(t *testing.T) {
 }
 
 func TestExpire(t *testing.T) {
-	m := MemoryStorage{}
+	m := NewCache(NewMemoryStorage())
 	m.Setup()
 	in10Milliseconds := time.Now().UTC().Add(time.Duration(10) * time.Millisecond)
 	in40Milliseconds := time.Now().UTC().Add(time.Duration(40) * time.Millisecond)
 	in80Milliseconds := time.Now().UTC().Add(time.Duration(80) * time.Millisecond)
 
-	a := &HttpCacheEntry{IsCached: true, Expiration: in10Milliseconds}
-	b := &HttpCacheEntry{IsCached: false, Expiration: in40Milliseconds}
-	c := &HttpCacheEntry{IsCached: false, Expiration: in80Milliseconds}
+	a := &HttpCacheEntry{Response: nil, Expiration: in10Milliseconds}
+	b := &HttpCacheEntry{Response: &Response{}, Expiration: in40Milliseconds}
+	c := &HttpCacheEntry{Response: &Response{}, Expiration: in80Milliseconds}
 
 	m.Push("a", a)
 	m.Push("a", b)
 	m.Push("b", c)
 
-	assertExpiration := func(key string, isCached bool, shouldExist bool) {
-		m.GetOrLock(key, func(value *HttpCacheEntry) bool { return value.IsCached == isCached }, func(found *HttpCacheEntry) error {
+	assertExpiration := func(key string, responseIsNil bool, shouldExist bool) {
+		m.GetOrLock(key, func(value *HttpCacheEntry) bool { return (value.Response == nil) == responseIsNil }, func(found *HttpCacheEntry) error {
 			if shouldExist {
 				assert.NotNil(t, found, "An entry that should exist was expired")
 			} else {

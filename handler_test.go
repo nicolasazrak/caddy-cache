@@ -14,6 +14,7 @@ import (
 /* Helpers */
 
 type TestHandler struct {
+	returnedBody            string
 	maxConcurrencyLevel     int
 	currentConcurrencyLevel int
 	StatsLock               *sync.Mutex
@@ -72,7 +73,9 @@ func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 	time.Sleep(h.Delay)
 
-	w.Write([]byte("Hello :)"))
+	if h.returnedBody != "" {
+		w.Write([]byte(h.returnedBody))
+	}
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -80,9 +83,10 @@ func (h *TestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 }
 
 func buildBasicHandler() (*CacheHandler, *TestHandler) {
-	memory := MemoryStorage{}
-	memory.Setup()
+	cache := NewCache(NewMemoryStorage())
+	cache.Setup()
 	backend := TestHandler{
+		returnedBody: "Hello :)",
 		StatsLock:    new(sync.Mutex),
 		Delay:        0,
 		ResponseCode: 200,
@@ -93,8 +97,8 @@ func buildBasicHandler() (*CacheHandler, *TestHandler) {
 			CacheRules:    []CacheRule{},
 			DefaultMaxAge: time.Duration(10) * time.Second,
 		},
-		Storage: &memory,
-		Next:    &backend,
+		Cache: cache,
+		Next:  &backend,
 	}, &backend
 }
 
