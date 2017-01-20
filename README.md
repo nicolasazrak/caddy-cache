@@ -25,7 +25,9 @@ For more advanced usages you can use the following parameters:
 - `match:` Sets rules to make responses cacheable, if any matches and the response is cacheable by https://tools.ietf.org/html/rfc7234 then it will be stored. Supported options are:
     - `path`: check if the request starts with this path
     - `header`: checks if the response contains a header with one of the specified values
-
+- `storage`: There are two storage engines:
+    - `̀mmap` It stores the files contents in a file in /tmp You can specify where to store the files. Keep in mind that it is not persistent. Every time the server is restarted the files will be created again.
+    - `memory` It stores the files contents in a byte array in memory
 
 ```
 caddy.test {
@@ -37,6 +39,7 @@ caddy.test {
         }
         default_max_age 10
         status_header X-Cache-Status
+        storage mmap /tmp/caddy-cache
     }
 }
 ```
@@ -44,17 +47,28 @@ caddy.test {
 
 ### Benchmarks
 
-Benchmark files are in `benchmark` folder. The backend server in the proxy case is [http-server](https://www.npmjs.com/package/http-server). Tests were run on my Lenovo G480 with Intel i3 3220 and 8gb of ram.
+Benchmark files are in `benchmark` folder. Tests were run on my Lenovo G480 with Intel i3 3220 and 8gb of ram.
 
 Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
 
 
-| File Size            ||                     41kb         ||             |      608kb            ||             |   2.6M                ||   
-| ---                  |       :----:  |    :---:  |  :---: |    ----       |   ----   |   ----   |  :----:        |   ---  |   ---  |
-|                      | **Total time**    | **Average**   | **99%th**  |  **Total time**   |  **Average** | **99%th**    | **Total time**     |  **Average**  | **99%th**  |
-| Proxy + gzip         | 2.758 seconds | 34.472 ms |   63ms | 4.573 seconds | 57.164ms |  105ms   | 11.417 seconds | 142.716ms | 220ms  |
-| Root  + gzip         | 0.268 seconds | 3.346ms   |   8ms  | 0.775 seconds |  9.689ms |   23ms   |  2.458 seconds |  30.729ms |  50ms  |
-| Proxy + gzip + cache | 0.240 seconds | 3.002ms   |   7ms  | 0.743 seconds |  9.292ms |   16ms   |  2.380 seconds |  29.753ms |  35ms  |
+| File Size             ||                     41kb               ||                 |    608kb                ||                |   2.6M                   ||   
+| ---                   |       :----:   |    :---:    |  :---:    |         ----    |    ----      | ----      |  :----:        |   ---        |   ---      |
+|                       | **Total time** | **Average** | **99%th** |  **Total time** |  **Average** | **99%th** | **Total time** |  **Average** | **99%th**  |
+| Proxy to Root + cache | 0.567 seconds  |  7.091 ms   |  17ms     | 0.898 seconds   | 11.224 ms    |  31 ms    |  2.525 seconds |  31.560 ms   |  51 ms     |
+| Proxy to Root         | 2.683 seconds  | 33.541 ms   |  58ms     | 6.493 seconds   | 81.157 ms    | 163 ms    | 22.095 seconds | 276.187 ms   | 826 ms     |
+| Root                  | 0.833 seconds  | 10.414 ms   |  23ms     | 2.546 seconds   | 31.827 ms    |  78 ms    |  8.695 seconds | 108.685 ms   | 258 ms     |
+
+Using Gzip: 
+
+`ab -n 100 -c 5 -H "Accept-Encoding: gzip,deflate" http://caddy.test:2015/file.txt`
+
+| File Size             ||                     41kb               ||                 |    608kb                 ||                 |   2.6M                   ||
+| ---                   |       :----:   |    :---:    |  :---:    |         ----    |    ----       | ----      |   :----:        |   ---        |   ---      |
+|                       | **Total time** | **Average** | **99%th** |  **Total time** |  **Average**  | **99%th** |  **Total time** |  **Average** | **99%th**  |
+| Proxy to Root + cache | 0.035 seconds  |   1.741 ms  |   5 ms    | 0.061 seconds   |    3.047 ms   |   7 ms    |   0.123 seconds |   6.154 ms   | 12 ms      |
+| Proxy to Root         | 2.914 seconds  | 145.689 ms  | 285 ms    | 73.09 seconds   | 3654.508 ms   | 5709 ms   |  314.44 seconds | 16303.978 ms | 22725 ms   |
+| Root                  | 2.348 seconds  | 117.406 ms  | 172 ms    | 77.59 seconds   | 3879.899 ms   | 4813 ms   |  308.66 seconds | 15433.155 ms | 20183 ms   |
 
 
 
@@ -65,10 +79,10 @@ Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
 - [x] Add header with cache status
 - [x] Stream responses while fetching them from upstream
 - [x] Locking concurrent requests to the same path
+- [x] File disk storage for larger objects
 - [ ] Purge cache entries [#1](https://github.com/nicolasazrak/caddy-cache/issues/1)
 - [ ] Serve stale content if proxy is down
 - [ ] Punch hole cache
-- [ ] File disk storage for larger objects
 - [ ] Do conditional requests to revalidate data
 - [ ] Max entries size
 - [ ] Add a configuration to not use query params in cache key
