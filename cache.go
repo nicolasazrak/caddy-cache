@@ -92,13 +92,13 @@ func (s *Cache) GetOrSet(key string, condition func(*HttpCacheEntry) bool, handl
 
 	for _, value := range entry.values {
 		if condition(value.ref) {
-			// The searched resource if found, the list can be unlocked
-			entry.valuesLock.Unlock()
-
 			// Read lock the content so it is not expired while using it in the handler
 			value.refLock.RLock()
 			//noinspection GoDeferInLoop
 			defer value.refLock.RUnlock()
+
+			// The searched resource if found, the list can be unlocked
+			entry.valuesLock.Unlock()
 
 			// Call the handler
 			newValue, err := handler(value.ref)
