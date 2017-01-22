@@ -5,6 +5,7 @@ import (
 	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 	"path"
+	"runtime"
 	"strconv"
 	"time"
 )
@@ -63,6 +64,10 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 		StatusHeader:  "",
 	}
 
+	if runtime.GOOS == "windows" {
+		config.Storage = NewMemoryStorage()
+	}
+
 	c.Next() // Skip "cache" literal
 
 	if len(c.RemainingArgs()) > 1 {
@@ -91,6 +96,9 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 			}
 			switch args[0] {
 			case "mmap":
+				if runtime.GOOS == "windows" {
+					return nil, c.Err("MMap storage is not available in Windows")
+				}
 				if len(args) != 2 {
 					return nil, c.Err("Invalid mmap configs")
 				}

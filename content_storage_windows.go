@@ -1,16 +1,11 @@
-// +build !windows
-
 package cache
 
 import (
 	"bytes"
-	"encoding/base32"
-	"fmt"
+	"errors"
 	"io"
 	"math/rand"
 	"os"
-	"path"
-	"syscall"
 )
 
 /* Storage */
@@ -92,55 +87,25 @@ func NewMMapStorage(path string) *MMapStorage {
 }
 
 func (s *MMapStorage) Setup() error {
-	return os.MkdirAll(s.path, 0700)
+	return errors.New("MMap is not available on windows")
 }
 
 func (s *MMapStorage) NewContent(key string) (StorageContent, error) {
-	filename := path.Join(s.path, base32.StdEncoding.EncodeToString([]byte(key))+randSeq(10))
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	return &MMapContent{file: file}, nil
+	return nil, errors.New("Not available")
 }
 
 func (data *MMapContent) Write(p []byte) (int, error) {
-	return data.file.Write(p)
+	return 0, errors.New("Not available")
 }
 
 func (data *MMapContent) Bytes() []byte {
-	return data.mapping
-}
-
-func (data *MMapContent) Close() error {
-	if err := data.file.Sync(); err != nil {
-		return err
-	}
-
-	info, err := data.file.Stat()
-	if err != nil {
-		fmt.Println(err.Error())
-		return err
-	}
-	fd := int(data.file.Fd())
-	flags := syscall.PROT_READ | syscall.PROT_WRITE
-	mapping, err := syscall.Mmap(fd, 0, int(info.Size()), flags, syscall.MAP_SHARED)
-	if err != nil {
-		return err
-	}
-	data.mapping = mapping
 	return nil
 }
 
+func (data *MMapContent) Close() error {
+	return errors.New("Not available")
+}
+
 func (s *MMapContent) Clear() error {
-	err := syscall.Munmap(s.mapping)
-	if err != nil {
-		return err
-	}
-	filePath := s.file.Name()
-	err = s.file.Close()
-	if err != nil {
-		return err
-	}
-	return os.Remove(filePath)
+	return errors.New("Not available")
 }
