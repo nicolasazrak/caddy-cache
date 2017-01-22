@@ -22,7 +22,9 @@ func respond(response *Response, w http.ResponseWriter) {
 		}
 	}
 	w.WriteHeader(response.Code)
-	w.Write(response.Body.Bytes())
+	if response.Body != nil {
+		w.Write(response.Body.Bytes())
+	}
 }
 
 /**
@@ -91,6 +93,7 @@ func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *h
 
 	// Build the cache entry
 	entry := &HttpCacheEntry{
+		isPublic:   false, // Default values for private responses
 		Expiration: time.Now().UTC().Add(time.Duration(1) * time.Hour),
 		Request:    &Request{HeaderMap: r.Header},
 		Response:   nil,
@@ -117,12 +120,13 @@ func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *h
 
 		// Update the expiration value
 		entry.Expiration = expirationTime
+		entry.isPublic = true
 
 		// Create the new entry, potentially creating a new file in disk
 		writer, err := handler.Cache.NewContent(key)
 		if err != nil {
-			fmt.Println("Ups", err)
-			panic(err)
+			fmt.Println(err)
+			return err
 		}
 
 		// Update the body writer, next Writes will go to the created writer
@@ -149,6 +153,18 @@ func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *h
 		entry.Response.Body = Body
 	}
 
+	// This is an special case because if it is a head request it will never enter the WriteListener
+	if r.Method == "HEAD" {
+		isCacheable, expirationTime, err := getCacheableStatus(r, result.StatusCode, result.Header, handler.Config)
+		if err != nil {
+			return nil, err
+		}
+		if isCacheable {
+			entry.Expiration = expirationTime
+			entry.isPublic = true
+		}
+	}
+
 	return entry, nil
 }
 
@@ -160,7 +176,7 @@ func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (i
 
 	returnedStatusCode := http.StatusInternalServerError // If this is not updated means there was an error
 	err := handler.Cache.GetOrSet(getKey(r), matchesRequest(r), func(previous *HttpCacheEntry) (*HttpCacheEntry, error) {
-		if previous == nil || !previous.IsCached() {
+		if previous == nil || !previous.isPublic {
 			newEntry, err := handler.HandleNonCachedResponse(w, r)
 			if err != nil {
 				return nil, err

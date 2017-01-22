@@ -16,18 +16,10 @@ type Response struct {
 }
 
 type HttpCacheEntry struct {
+	isPublic   bool
 	Expiration time.Time
 	Request    *Request
 	Response   *Response
-}
-
-// IsCached might not be the better name
-// It means that the response can be sent to the client
-// Because not only public responses are stored, private too.
-// So if this is false, it means a request to upstream is needed
-func (entry *HttpCacheEntry) IsCached() bool {
-	// TODO what happens with HEAD requests ??
-	return entry.Response != nil && entry.Response.Body != nil
 }
 
 func (entry *HttpCacheEntry) Clear() error {
