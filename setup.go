@@ -76,21 +76,21 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 
 	for c.NextBlock() {
 		parameter := c.Val()
+		args := c.RemainingArgs()
+
 		switch parameter {
 
 		case "match":
-			args := c.RemainingArgs()
-			if len(args) != 0 {
+			if len(args) == 0 {
 				return nil, c.Err("Invalid usage of match in cache config.")
 			} else {
-				cacheRules, err := parseMatchRules(c)
+				cacheRule, err := parseMatchRules(c, args)
 				if err != nil {
 					return nil, err
 				}
-				config.CacheRules = cacheRules
+				config.CacheRules = append(config.CacheRules, cacheRule)
 			}
 		case "storage":
-			args := c.RemainingArgs()
 			if len(args) == 0 {
 				return nil, c.Err("Invalid storage directive, specify: memory or mmap")
 			}
@@ -109,7 +109,6 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 				return nil, c.Err("Unknown storage engine " + args[0])
 			}
 		case "default_max_age":
-			args := c.RemainingArgs()
 			if len(args) != 1 {
 				return nil, c.Err("Invalid usage of default_max_age in cache config.")
 			} else {
@@ -120,7 +119,6 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 				config.DefaultMaxAge = time.Duration(val) * time.Second
 			}
 		case "status_header":
-			args := c.RemainingArgs()
 			if len(args) != 1 {
 				return nil, c.Err("Invalid usage of status_header in cache config.")
 			} else {
@@ -134,40 +132,26 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 	return &config, nil
 }
 
-func parseMatchRules(c *caddy.Controller) ([]CacheRule, error) {
-	if c.Next() && c.Val() != "{" { // Hack to make work nested Blocks
-		return nil, c.Err("Invalid syntax on match directive in cache configuration")
-	}
-
-	rules := []CacheRule{}
-
-	for c.NextBlock() {
-		condition := c.Val()
-		switch condition {
-		case "header":
-			args := c.RemainingArgs()
-			if len(args) < 2 {
-				return nil, c.Err("Invalid number of arguments in header condition of match in cache config.")
-			} else {
-				rules = append(rules, &HeaderCacheRule{
-					Header: args[0],
-					Value:  args[1:],
-				})
-			}
-		case "path":
-			args := c.RemainingArgs()
-			if len(args) != 1 {
-				return nil, c.Err("Invalid number of arguments in path condition of match in cache config.")
-			} else {
-				rules = append(rules, &PathCacheRule{
-					Path: args[0],
-				})
-			}
-		default:
-			return nil, c.Err(fmt.Sprintf("Unknown condition %s on match parameter of cache directive", condition))
+func parseMatchRules(c *caddy.Controller, args []string) (CacheRule, error) {
+	switch args[0] {
+	case "header":
+		if len(args) < 3 {
+			return nil, c.Err("Invalid number of arguments in header condition of match in cache config.")
+		} else {
+			return &HeaderCacheRule{
+				Header: args[1],
+				Value:  args[2:],
+			}, nil
 		}
+	case "path":
+		if len(args) != 2 {
+			return nil, c.Err("Invalid number of arguments in path condition of match in cache config.")
+		} else {
+			return &PathCacheRule{
+				Path: args[1],
+			}, nil
+		}
+	default:
+		return nil, c.Err(fmt.Sprintf("Unknown condition %s on match parameter of cache directive", args[0]))
 	}
-
-	c.IncrNest() // Hack to make work nested Blocks
-	return rules, nil
 }

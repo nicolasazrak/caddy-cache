@@ -33,10 +33,8 @@ For more advanced usages you can use the following parameters:
 caddy.test {
     proxy / yourserver:5000
     cache {
-        match {
-            path /assets
-            header Content-Type image/jpg image/png
-        }
+        match path /assets
+        match header Content-Type image/jpg image/png
         default_max_age 10
         status_header X-Cache-Status
         storage mmap /tmp/caddy-cache
