@@ -5,8 +5,28 @@
 
 This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 
-To use it you need to compile your own version of caddy with this plugin like [this doc](https://github.com/mholt/caddy/wiki/Writing-a-Plugin:-Directives). 
- 
+## Build
+
+To use it you need to compile your own version of caddy with this plugin. First fetch the code
+
+- `go get -u github.com/mholt/caddy`
+- `go get -u github.com/nicolasazrak/caddy-cache`
+- `cd $GOPATH/src/github.com/mholt/caddy`
+- `go get ./... # Fetch dependencies recursively`
+- `cd $GOPATH/src/github.com/nicolasazrak/caddy-cache`
+- `go get ./...`
+
+Then update the file in `$GOPATH/src/github.com/mholt/caddy/caddy/caddymain/run.go` and import `_ "github.com/nicolasazrak/caddy-cache"`.
+
+And Then build the caddy with:
+
+- `cd $GOPATH/src/github.com/mholt/caddy/caddy`
+- `./build.bash`
+
+This will produce the caddy binary in that same folder. For more information about how plugins work read [this doc](https://github.com/mholt/caddy/wiki/Writing-a-Plugin:-Directives). 
+
+## Usage
+
 Example minimal usage in `Caddyfile`
 
 ```
@@ -43,7 +63,7 @@ caddy.test {
 ```
 
 
-### Benchmarks
+## Benchmarks
 
 Benchmark files are in `benchmark` folder. Tests were run on my Lenovo G480 with Intel i3 3220 and 8gb of ram.
 
@@ -71,7 +91,7 @@ Using Gzip:
 
 
 
-### Todo list
+## Todo list
 
 - [x] Support `vary` header
 - [x] Add header with cache status
