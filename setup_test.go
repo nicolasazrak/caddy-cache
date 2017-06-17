@@ -79,9 +79,9 @@ func TestParsingConfig(t *testing.T) {
 		{"cache {\n default_max_age \n}", true, Config{}},                  // Missing parameters
 		{"cache {\n max_age 50 \n}", true, Config{}},                       // Unknown parameters
 		{"cache {\n default_max_age 20 \n max_age 50 \n}", true, Config{}}, // Mixed valid and invalid parameters
-		{"cache {\n match path / ea \n}", true, Config{}},         // Invalid number of parameters in match
-		{"cache {\n match unknown \n}", true, Config{}},           // Unknown condition in match
-		{"cache {\n match \n}", true, Config{}},          // Unknown "invalid"
+		{"cache {\n match path / ea \n}", true, Config{}},                  // Invalid number of parameters in match
+		{"cache {\n match unknown \n}", true, Config{}},                    // Unknown condition in match
+		{"cache {\n match \n}", true, Config{}},                            // Unknown "invalid"
 		{"cache {\n storage pepe \n}", true, Config{}},                     // Unknown storage "pepe"
 		{"cache {\n storage mmap \n}", true, Config{}},                     // Missing path
 	}
