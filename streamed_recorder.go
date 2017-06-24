@@ -49,6 +49,12 @@ func (rw *StreamedRecorder) Header() http.Header {
 	return rw.w.Header()
 }
 
+// fix StreamRecorder is not CloseNotify
+func (rw *StreamedRecorder) CloseNotify() <-chan bool {
+	 return rw.w.(http.CloseNotifier).CloseNotify()
+}
+
+
 // writeHeader writes a header if it was not written yet and
 // detects Content-Type if needed.
 //
