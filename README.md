@@ -2,6 +2,7 @@
 
 [![Build Status](https://travis-ci.org/nicolasazrak/caddy-cache.svg?branch=master)](https://travis-ci.org/nicolasazrak/caddy-cache)
 
+**Warning: This plugin is still experimental**
 
 This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 
