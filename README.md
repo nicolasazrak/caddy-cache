@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/nicolasazrak/caddy-cache.svg?branch=master)](https://travis-ci.org/nicolasazrak/caddy-cache)
 
-**Warning: This plugin is still experimental**
+**Warning: This plugin is still experimental, it should not be used in production, it doesn't handle concurrent requests. There is work in progress branch to solve that https://github.com/nicolasazrak/caddy-cache/tree/v2 (more information: https://github.com/nicolasazrak/caddy-cache/issues/9#issuecomment-310868633)**
 
 This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 
