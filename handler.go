@@ -8,32 +8,30 @@ import (
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
 
-type CacheHandler struct {
+// Handler is the main cache middleware
+type Handler struct {
+	// Handler configuration
 	Config *Config
-	// Cache  *Cache
-	Entries map[string]*HttpCacheEntry
-	Next    httpserver.Handler
+
+	// A map with URL -> List of cached entries
+	Entries map[string][]*HttpCacheEntry
+
+	// Next handler
+	Next httpserver.Handler
+
+	// Handles locking for different URLs
+	URLLocks *URLLock
 }
 
-// GetEntry returns an http entry to serve
-// If the response is in cache it will return the previous entry
-// In case is not there it will request it to upstream
-func (handler CacheHandler) GetEntry(r *http.Request) (*HttpCacheEntry, error) {
-	previousEntry, exists := handler.Entries[r.URL.Path]
-	if exists {
-		return previousEntry, nil
-	}
+const (
+	cacheHit    = "hit"
+	cacheMiss   = "miss"
+	cacheSkip   = "skip"
+	cacheBypass = "bypass"
+)
 
-	newResult := <-FetchUpstream(handler.Next, r)
-	if newResult.err != nil {
-		return nil, newResult.err
-	}
-
-	newEntry := newResult.entry
-	if newEntry.isPublic {
-		handler.Entries[r.URL.Path] = newEntry
-	}
-	return newEntry, nil
+func getKey(r *http.Request) string {
+	return r.URL.Path
 }
 
 func shouldUseCache(req *http.Request) bool {
@@ -52,18 +50,11 @@ func shouldUseCache(req *http.Request) bool {
 	return true
 }
 
-func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
-	if !shouldUseCache(r) {
-		return handler.Next.ServeHTTP(w, r)
-	}
+func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
+	w.Header().Add("X-Cache-status", status)
+}
 
-	fmt.Println("Handling request........")
-	entry, err := handler.GetEntry(r)
-
-	if err != nil {
-		return 500, err
-	}
-
+func (handler *Handler) respond(w http.ResponseWriter, entry *HttpCacheEntry, cacheStatus string) (int, error) {
 	body, err := entry.GetBodyReader()
 	if err != nil {
 		fmt.Println(err)
@@ -71,6 +62,7 @@ func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (i
 	}
 	defer body.Close()
 
+	handler.addStatusHeaderIfConfigured(w, cacheStatus)
 	for k, values := range entry.Response.HeaderMap {
 		for _, v := range values {
 			w.Header().Add(k, v)
@@ -88,4 +80,72 @@ func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (i
 	io.Copy(w, body)
 
 	return entry.Response.Code, nil
+}
+
+func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
+	if !shouldUseCache(r) {
+		handler.addStatusHeaderIfConfigured(w, cacheBypass)
+		return handler.Next.ServeHTTP(w, r)
+	}
+
+	lock := handler.URLLocks.Adquire(getKey(r))
+
+	// Lookup correct entry
+	previousEntry, exists := handler.Entries[getKey(r)]
+
+	// First case: CACHE HIT
+	// The response exists in cache and is public
+	// It should be served as saved
+	if exists && previousEntry[0].isPublic {
+		lock.Unlock()
+		return handler.respond(w, previousEntry[0], cacheHit)
+	}
+
+	// Second case: CACHE SKIP
+	// The response is in cache but it is not public
+	// It should NOT be served from cache
+	// It should be fetched from upstream and check the new headers
+	// To check if the new response changes to public
+	if exists && !previousEntry[0].isPublic {
+		lock.Unlock()
+		newResult := <-FetchUpstream(handler.Next, r)
+		if newResult.err != nil {
+			fmt.Println(newResult.err)
+			lock.Unlock()
+			return 500, newResult.err
+		}
+		newEntry := newResult.entry
+		handler.respond(w, newEntry, cacheSkip)
+
+		// Case when response was private but now is public
+		if newEntry.isPublic {
+			lock := handler.URLLocks.Adquire(getKey(r))
+			// TODO check if it was not already replaced
+			handler.Entries[getKey(r)][0] = newEntry
+			lock.Unlock()
+		}
+
+		return newEntry.Response.Code, nil
+	}
+
+	// Third case: CACHE MISS
+	// The response is not in cache
+	// It should be fetched from upstream and save it in cache
+	if !exists {
+		newResult := <-FetchUpstream(handler.Next, r)
+		if newResult.err != nil {
+			fmt.Println(newResult.err)
+			lock.Unlock()
+			return 500, newResult.err
+		}
+		newEntry := newResult.entry
+		handler.respond(w, newEntry, cacheMiss)
+
+		handler.Entries[getKey(r)] = append(handler.Entries[getKey(r)], newEntry)
+		lock.Unlock()
+
+		return newEntry.Response.Code, nil
+	}
+
+	return 500, nil
 }

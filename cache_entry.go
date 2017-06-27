@@ -1,22 +1,26 @@
 package cache
 
 import (
-	"bytes"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
 type HttpCacheEntry struct {
-	isPublic    bool
-	Expiration  time.Time
-	closed      bool
-	subscribers []chan struct{}
-	Request     *http.Request
-	Response    *Response
+	isPublic   bool
+	Expiration time.Time
+
+	closed     bool
+	closedLock *sync.RWMutex
+
+	subscribers     []chan struct{}
+	subscribersLock *sync.RWMutex
+
+	Request  *http.Request
+	Response *Response
 }
 
 type Response struct {
@@ -27,29 +31,45 @@ type Response struct {
 	// Or in the buffer if it's not and used privately
 	// For the current request
 	bodyFile   *os.File
-	bodyBuffer *bytes.Buffer
+	bodyBuffer *ConcurrentBuffer
+}
+
+func NewHTTPCacheEntry(r *http.Request) *HttpCacheEntry {
+	return &HttpCacheEntry{
+		Request:         r,
+		subscribersLock: new(sync.RWMutex),
+		closedLock:      new(sync.RWMutex),
+	}
 }
 
 func (e *HttpCacheEntry) Subscribe() <-chan struct{} {
 	newSubscriber := make(chan struct{})
+
+	e.closedLock.Lock()
+	defer e.closedLock.Unlock()
+
 	if e.closed {
-		fmt.Println("There was a subscribe but the entry is already closed")
 		close(newSubscriber)
 		return newSubscriber
 	}
-	fmt.Println("Adding subscriber to an opened entry")
+
+	e.subscribersLock.Lock()
+	defer e.subscribersLock.Unlock()
 	e.subscribers = append(e.subscribers, newSubscriber)
 	return newSubscriber
 }
 
 func (e *HttpCacheEntry) notifySubscribers() {
-	// fmt.Println("Notifying subscribers of more content", len(e.subscribers))
+	e.subscribersLock.RLock()
+	defer e.subscribersLock.RUnlock()
 	for _, subscriber := range e.subscribers {
 		subscriber <- struct{}{}
 	}
 }
 
 func (e *HttpCacheEntry) RemoveSubscriber(subscriber <-chan struct{}) {
+	e.subscribersLock.Lock()
+	defer e.subscribersLock.Unlock()
 	for i, x := range e.subscribers {
 		if x == subscriber {
 			e.subscribers = append(e.subscribers[:i], e.subscribers[i+1:]...)
@@ -59,6 +79,9 @@ func (e *HttpCacheEntry) RemoveSubscriber(subscriber <-chan struct{}) {
 }
 
 func (e *HttpCacheEntry) OnFlush() {
+	e.closedLock.RLock()
+	defer e.closedLock.RUnlock()
+
 	if e.isPublic {
 		e.Response.bodyFile.Sync()
 	}
@@ -66,6 +89,9 @@ func (e *HttpCacheEntry) OnFlush() {
 }
 
 func (e *HttpCacheEntry) OnWrite() {
+	e.closedLock.RLock()
+	defer e.closedLock.RUnlock()
+
 	if e.isPublic {
 		e.Response.bodyFile.Sync()
 	}
@@ -73,10 +99,16 @@ func (e *HttpCacheEntry) OnWrite() {
 }
 
 func (e *HttpCacheEntry) Close() {
+	e.closedLock.Lock()
+	defer e.closedLock.Unlock()
 	e.closed = true
 
-	e.Response.bodyFile.Close()
-	fmt.Println("Closing the entry", len(e.subscribers))
+	if e.isPublic {
+		e.Response.bodyFile.Close()
+	}
+
+	e.subscribersLock.RLock()
+	defer e.subscribersLock.RUnlock()
 	for _, subscriber := range e.subscribers {
 		close(subscriber)
 	}
@@ -92,15 +124,15 @@ func (e *HttpCacheEntry) GetBodyReader() (io.ReadCloser, error) {
 
 func (e *HttpCacheEntry) GetBodyWriter() io.Writer {
 	if e.isPublic {
-		return e.Response.bodyBuffer
+		return e.Response.bodyFile
 	}
 
-	return e.Response.bodyFile
+	return e.Response.bodyBuffer
 }
 
 func (e *HttpCacheEntry) updateBodyWriter() error {
 	if !e.isPublic {
-		e.Response.bodyBuffer = new(bytes.Buffer)
+		e.Response.bodyBuffer = new(ConcurrentBuffer)
 		return nil
 	}
 
@@ -118,10 +150,8 @@ func (e *HttpCacheEntry) UpdateResponse(response *Response) error {
 		return err
 	}
 
-	fmt.Println("Cacheable: ", isPublic, expiration)
 	e.Response = response
-	e.isPublic = true
-	// e.isPublic = isPublic
+	e.isPublic = isPublic
 	e.Expiration = expiration
 
 	err = e.updateBodyWriter()

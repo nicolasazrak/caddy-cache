@@ -14,6 +14,8 @@ type UpstreamHandler struct {
 	result     *UpstreamResult
 	entry      *HttpCacheEntry
 	resultChan chan UpstreamResult
+	resultSent bool
+	recording  *StreamedRecorder
 }
 
 type UpstreamResult struct {
@@ -29,6 +31,7 @@ func (handler *UpstreamHandler) onFirstByte(code int, headerMap http.Header) (io
 
 	if err != nil {
 		fmt.Println(err)
+		handler.resultSent = true
 		handler.resultChan <- UpstreamResult{
 			err: err,
 		}
@@ -37,6 +40,7 @@ func (handler *UpstreamHandler) onFirstByte(code int, headerMap http.Header) (io
 
 	writer := handler.entry.GetBodyWriter()
 
+	handler.resultSent = true
 	handler.resultChan <- UpstreamResult{
 		entry: handler.entry,
 	}
@@ -53,7 +57,15 @@ func (handler *UpstreamHandler) onWrite() {
 }
 
 func (handler *UpstreamHandler) onEnd() {
-	fmt.Println("Response ended, closing entry")
+	if !handler.resultSent {
+		handler.entry.UpdateResponse(&Response{
+			Code:      handler.recording.Code,
+			HeaderMap: handler.recording.HeaderMap,
+		})
+		handler.resultChan <- UpstreamResult{
+			entry: handler.entry,
+		}
+	}
 	handler.entry.Close()
 }
 
@@ -61,22 +73,21 @@ func (handler *UpstreamHandler) onEnd() {
 // As soon as all headers are sent (when the first body byte is sent)
 func (handler *UpstreamHandler) doRequest() <-chan UpstreamResult {
 	go func() {
-		streamRecorder := NewStreamedRecorder(handler)
-		handler.Next.ServeHTTP(streamRecorder, handler.r)
+		handler.recording = NewStreamedRecorder(handler)
+		handler.Next.ServeHTTP(handler.recording, handler.r)
 		handler.onEnd()
 	}()
 
 	return handler.resultChan
 }
 
+// FetchUpstream fetchs upstream and returns a channel that will emit an UpstreamResult
 func FetchUpstream(Next httpserver.Handler, r *http.Request) <-chan UpstreamResult {
 	h := &UpstreamHandler{
 		r:          r,
 		Next:       Next,
 		resultChan: make(chan UpstreamResult),
-		entry: &HttpCacheEntry{
-			Request: r,
-		},
+		entry:      NewHTTPCacheEntry(r),
 	}
 	return h.doRequest()
 }
