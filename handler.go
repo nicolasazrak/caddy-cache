@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
@@ -61,16 +62,19 @@ func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, statu
 	w.Header().Add("X-Cache-status", status)
 }
 
-func (handler *Handler) saveEntry(r *http.Request, updatedEntry *HttpCacheEntry) {
-	for i, previousEntry := range handler.Entries[getKey(r)] {
-		if matchesVary(r, previousEntry) {
-			// TODO clean previousEntry
-			handler.Entries[getKey(r)][i] = updatedEntry
+func (handler *Handler) saveEntry(updatedEntry *HttpCacheEntry) {
+	key := getKey(updatedEntry.Request)
+	handler.scheduleCleanEntry(updatedEntry)
+
+	for i, previousEntry := range handler.Entries[key] {
+		if matchesVary(updatedEntry.Request, previousEntry.Response) {
+			go previousEntry.Clean()
+			handler.Entries[key][i] = updatedEntry
 			return
 		}
 	}
 
-	handler.Entries[getKey(r)] = append(handler.Entries[getKey(r)], updatedEntry)
+	handler.Entries[key] = append(handler.Entries[key], updatedEntry)
 }
 
 func (handler *Handler) getEntry(r *http.Request) (*HttpCacheEntry, bool) {
@@ -81,7 +85,7 @@ func (handler *Handler) getEntry(r *http.Request) (*HttpCacheEntry, bool) {
 	}
 
 	for _, entry := range previousEntries {
-		if matchesVary(r, entry) {
+		if matchesVary(r, entry.Response) {
 			return entry, true
 		}
 	}
@@ -89,8 +93,26 @@ func (handler *Handler) getEntry(r *http.Request) (*HttpCacheEntry, bool) {
 	return nil, false
 }
 
-func (handler *Handler) cleanEntry(entry *HttpCacheEntry) {
+func (handler *Handler) scheduleCleanEntry(entry *HttpCacheEntry) {
+	go func(entry *HttpCacheEntry) {
+		time.Sleep(entry.Expiration.Sub(time.Now().UTC()))
+		handler.cleanEntry(entry)
+	}(entry)
+}
 
+func (handler *Handler) cleanEntry(entry *HttpCacheEntry) {
+	key := getKey(entry.Request)
+
+	lock := handler.URLLocks.Adquire(key)
+	defer lock.Unlock()
+
+	for i, otherEntry := range handler.Entries[getKey(entry.Request)] {
+		if entry == otherEntry {
+			handler.Entries[key] = append(handler.Entries[key][:i], handler.Entries[key][i+1:]...)
+			entry.Clean()
+			return
+		}
+	}
 }
 
 func (handler *Handler) respond(w http.ResponseWriter, entry *HttpCacheEntry, cacheStatus string) (int, error) {
@@ -159,7 +181,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 		// Case when response was private but now is public
 		if newEntry.isPublic {
 			lock := handler.URLLocks.Adquire(getKey(r))
-			handler.saveEntry(r, newEntry)
+			handler.saveEntry(newEntry)
 			lock.Unlock()
 		}
 
@@ -179,7 +201,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 		newEntry := newResult.entry
 		handler.respond(w, newEntry, cacheMiss)
 
-		handler.saveEntry(r, newEntry)
+		handler.saveEntry(newEntry)
 		lock.Unlock()
 
 		return newEntry.Response.Code, nil

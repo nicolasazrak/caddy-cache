@@ -30,15 +30,12 @@ func getCacheableStatus(r *http.Request, statusCode int, respHeaders http.Header
 	return expiration.After(time.Now().UTC()), expiration, nil
 }
 
-func matchesVary(r *http.Request, previousEntry *HttpCacheEntry) bool {
-	vary, hasVary := previousEntry.Response.HeaderMap["Vary"]
-	if !hasVary {
-		return true
-	}
+func matchesVary(currentRequest *http.Request, previousResponse *Response) bool {
+	vary := previousResponse.HeaderMap.Get("Vary")
 
-	for _, searchedHeader := range strings.Split(vary[0], ",") {
+	for _, searchedHeader := range strings.Split(vary, ",") {
 		searchedHeader = strings.TrimSpace(searchedHeader)
-		if !reflect.DeepEqual(previousEntry.Request.Header[searchedHeader], r.Header[searchedHeader]) {
+		if !reflect.DeepEqual(currentRequest.Header[searchedHeader], previousResponse.HeaderMap[searchedHeader]) {
 			return false
 		}
 	}

@@ -16,8 +16,9 @@ type HttpCacheEntry struct {
 	closed     bool
 	closedLock *sync.RWMutex
 
-	subscribers     []chan struct{}
-	subscribersLock *sync.RWMutex
+	noSubscribersChan chan struct{} // Chan to inform that there are no new subscribers, used for cleanup
+	subscribers       []chan struct{}
+	subscribersLock   *sync.RWMutex
 
 	Request  *http.Request
 	Response *Response
@@ -36,12 +37,15 @@ type Response struct {
 
 func NewHTTPCacheEntry(r *http.Request) *HttpCacheEntry {
 	return &HttpCacheEntry{
-		Request:         r,
-		subscribersLock: new(sync.RWMutex),
-		closedLock:      new(sync.RWMutex),
+		Request:           r,
+		subscribersLock:   new(sync.RWMutex),
+		closedLock:        new(sync.RWMutex),
+		noSubscribersChan: make(chan struct{}),
 	}
 }
 
+// Subscribe returns a channel that will emit an empty struct
+// each time there is a new content in body reader
 func (e *HttpCacheEntry) Subscribe() <-chan struct{} {
 	newSubscriber := make(chan struct{})
 
@@ -67,6 +71,8 @@ func (e *HttpCacheEntry) notifySubscribers() {
 	}
 }
 
+// RemoveSubscriber removes a subscription
+// It is important to know that. Otherwise the entry cannot be cleaned
 func (e *HttpCacheEntry) RemoveSubscriber(subscriber <-chan struct{}) {
 	e.subscribersLock.Lock()
 	defer e.subscribersLock.Unlock()
@@ -76,6 +82,35 @@ func (e *HttpCacheEntry) RemoveSubscriber(subscriber <-chan struct{}) {
 			break
 		}
 	}
+
+	if len(e.subscribers) == 0 {
+		go func() {
+			e.noSubscribersChan <- struct{}{}
+		}()
+	}
+}
+
+// Clean removes the underlying file. It will block until
+// There are no more subscribers. It's important to be sure
+// that there will be no new subscribers or that will probably
+// fail
+func (e *HttpCacheEntry) Clean() error {
+	if e.Response.bodyFile == nil {
+		return nil
+	}
+
+	// Wait until no subscribers
+	for range e.noSubscribersChan {
+		e.subscribersLock.RLock()
+		noSubscribers := len(e.subscribers) == 0
+		e.subscribersLock.RUnlock()
+
+		if noSubscribers {
+			break
+		}
+	}
+
+	return os.Remove(e.Response.bodyFile.Name())
 }
 
 func (e *HttpCacheEntry) OnFlush() {
@@ -98,22 +133,33 @@ func (e *HttpCacheEntry) OnWrite() {
 	e.notifySubscribers()
 }
 
-func (e *HttpCacheEntry) Close() {
+// Close the entry meaning the the response has ended
+func (e *HttpCacheEntry) Close() error {
 	e.closedLock.Lock()
 	defer e.closedLock.Unlock()
 	e.closed = true
-
-	if e.isPublic {
-		e.Response.bodyFile.Close()
-	}
 
 	e.subscribersLock.RLock()
 	defer e.subscribersLock.RUnlock()
 	for _, subscriber := range e.subscribers {
 		close(subscriber)
 	}
+
+	if e.isPublic {
+		err := e.Response.bodyFile.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
+// GetBodyReader returns a io.ReadCloser that will contain
+// the body content. Note that if calling Read returns 0
+// does not mean the body has ended, there might be more content
+// being fetched from upstream. So to know when the body has ended
+// The client has to use Subscribe() channel
 func (e *HttpCacheEntry) GetBodyReader() (io.ReadCloser, error) {
 	if !e.isPublic {
 		return ioutil.NopCloser(e.Response.bodyBuffer), nil
@@ -136,7 +182,7 @@ func (e *HttpCacheEntry) updateBodyWriter() error {
 		return nil
 	}
 
-	f, err := ioutil.TempFile("", "")
+	f, err := ioutil.TempFile("", "caddy-cache-")
 	if err != nil {
 		return err
 	}
@@ -144,6 +190,9 @@ func (e *HttpCacheEntry) updateBodyWriter() error {
 	return err
 }
 
+// UpdateResponse saves the response and updates
+// the isPublic, expiration values and more importantly
+// The bodyWriter
 func (e *HttpCacheEntry) UpdateResponse(response *Response) error {
 	isPublic, expiration, err := getCacheableStatus(e.Request, response.Code, response.HeaderMap)
 	if err != nil {
@@ -154,10 +203,5 @@ func (e *HttpCacheEntry) UpdateResponse(response *Response) error {
 	e.isPublic = isPublic
 	e.Expiration = expiration
 
-	err = e.updateBodyWriter()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return e.updateBodyWriter()
 }

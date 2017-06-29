@@ -66,6 +66,8 @@ func (handler *UpstreamHandler) onEnd() {
 			entry: handler.entry,
 		}
 	}
+
+	// TODO handle error
 	handler.entry.Close()
 }
 
