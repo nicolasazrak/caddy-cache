@@ -78,6 +78,8 @@ func (handler *Handler) saveEntry(updatedEntry *HTTPCacheEntry) {
 }
 
 func (handler *Handler) getEntry(r *http.Request) (*HTTPCacheEntry, bool) {
+	// TODO fix data race
+	// Why is it happening? Gorace detects a race between this and cleanEntry
 	previousEntries, exists := handler.Entries[getKey(r)]
 
 	if !exists {
@@ -108,6 +110,8 @@ func (handler *Handler) cleanEntry(entry *HTTPCacheEntry) {
 
 	for i, otherEntry := range handler.Entries[getKey(entry.Request)] {
 		if entry == otherEntry {
+			// TODO fix data race
+			// Why is it happening?
 			handler.Entries[key] = append(handler.Entries[key][:i], handler.Entries[key][i+1:]...)
 			entry.Clean()
 			return
@@ -131,13 +135,6 @@ func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, ca
 	}
 	w.WriteHeader(entry.Response.Code)
 
-	moreContentChan := entry.Subscribe()
-	defer entry.RemoveSubscriber(moreContentChan)
-
-	io.Copy(w, body)
-	for range moreContentChan {
-		io.Copy(w, body)
-	}
 	io.Copy(w, body)
 
 	return entry.Response.Code, nil
@@ -158,6 +155,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	// The response exists in cache and is public
 	// It should be served as saved
 	if exists && previousEntry.isPublic {
+		fmt.Println("Got public previousEntry")
 		lock.Unlock()
 		return handler.respond(w, previousEntry, cacheHit)
 	}
@@ -198,10 +196,11 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 		return 500, newResult.err
 	}
 	newEntry := newResult.entry
-	handler.respond(w, newEntry, cacheMiss)
 
 	handler.saveEntry(newEntry)
 	lock.Unlock()
+
+	handler.respond(w, newEntry, cacheMiss)
 
 	return newEntry.Response.Code, nil
 }
