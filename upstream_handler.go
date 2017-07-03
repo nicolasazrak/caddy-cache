@@ -8,22 +8,22 @@ import (
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
 
-type UpstreamHandler struct {
+type upstreamHandler struct {
 	Next       httpserver.Handler
-	r          *http.Request
 	result     *UpstreamResult
-	entry      *HttpCacheEntry
+	entry      *HTTPCacheEntry
 	resultChan chan UpstreamResult
 	resultSent bool
 	recording  *StreamedRecorder
 }
 
+// UpstreamResult represent the result of fetching upstream
 type UpstreamResult struct {
-	entry *HttpCacheEntry
+	entry *HTTPCacheEntry
 	err   error
 }
 
-func (handler *UpstreamHandler) onFirstByte(code int, headerMap http.Header) (io.Writer, error) {
+func (handler *upstreamHandler) onFirstByte(code int, headerMap http.Header) (io.Writer, error) {
 	err := handler.entry.UpdateResponse(&Response{
 		Code:      code,
 		HeaderMap: headerMap,
@@ -48,15 +48,15 @@ func (handler *UpstreamHandler) onFirstByte(code int, headerMap http.Header) (io
 	return writer, nil
 }
 
-func (handler *UpstreamHandler) onFlush() {
+func (handler *upstreamHandler) onFlush() {
 	handler.entry.OnFlush()
 }
 
-func (handler *UpstreamHandler) onWrite() {
+func (handler *upstreamHandler) onWrite() {
 	handler.entry.OnWrite()
 }
 
-func (handler *UpstreamHandler) onEnd() {
+func (handler *upstreamHandler) onEnd() {
 	if !handler.resultSent {
 		handler.entry.UpdateResponse(&Response{
 			Code:      handler.recording.Code,
@@ -73,10 +73,10 @@ func (handler *UpstreamHandler) onEnd() {
 
 // Fetches upstream and returns a channel that will send the httpCacheEntry
 // As soon as all headers are sent (when the first body byte is sent)
-func (handler *UpstreamHandler) doRequest() <-chan UpstreamResult {
+func (handler *upstreamHandler) doRequest(r *http.Request) <-chan UpstreamResult {
 	go func() {
 		handler.recording = NewStreamedRecorder(handler)
-		handler.Next.ServeHTTP(handler.recording, handler.r)
+		handler.Next.ServeHTTP(handler.recording, r)
 		handler.onEnd()
 	}()
 
@@ -85,11 +85,10 @@ func (handler *UpstreamHandler) doRequest() <-chan UpstreamResult {
 
 // FetchUpstream fetchs upstream and returns a channel that will emit an UpstreamResult
 func FetchUpstream(Next httpserver.Handler, r *http.Request) <-chan UpstreamResult {
-	h := &UpstreamHandler{
-		r:          r,
+	h := &upstreamHandler{
 		Next:       Next,
-		resultChan: make(chan UpstreamResult),
+		resultChan: make(chan UpstreamResult, 1),
 		entry:      NewHTTPCacheEntry(r),
 	}
-	return h.doRequest()
+	return h.doRequest(r)
 }

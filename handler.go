@@ -15,7 +15,7 @@ type Handler struct {
 	Config *Config
 
 	// A map with URL -> List of cached entries
-	Entries map[string][]*HttpCacheEntry
+	Entries map[string][]*HTTPCacheEntry
 
 	// Next handler
 	Next httpserver.Handler
@@ -62,7 +62,7 @@ func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, statu
 	w.Header().Add("X-Cache-status", status)
 }
 
-func (handler *Handler) saveEntry(updatedEntry *HttpCacheEntry) {
+func (handler *Handler) saveEntry(updatedEntry *HTTPCacheEntry) {
 	key := getKey(updatedEntry.Request)
 	handler.scheduleCleanEntry(updatedEntry)
 
@@ -77,7 +77,7 @@ func (handler *Handler) saveEntry(updatedEntry *HttpCacheEntry) {
 	handler.Entries[key] = append(handler.Entries[key], updatedEntry)
 }
 
-func (handler *Handler) getEntry(r *http.Request) (*HttpCacheEntry, bool) {
+func (handler *Handler) getEntry(r *http.Request) (*HTTPCacheEntry, bool) {
 	previousEntries, exists := handler.Entries[getKey(r)]
 
 	if !exists {
@@ -93,14 +93,14 @@ func (handler *Handler) getEntry(r *http.Request) (*HttpCacheEntry, bool) {
 	return nil, false
 }
 
-func (handler *Handler) scheduleCleanEntry(entry *HttpCacheEntry) {
-	go func(entry *HttpCacheEntry) {
+func (handler *Handler) scheduleCleanEntry(entry *HTTPCacheEntry) {
+	go func(entry *HTTPCacheEntry) {
 		time.Sleep(entry.Expiration.Sub(time.Now().UTC()))
 		handler.cleanEntry(entry)
 	}(entry)
 }
 
-func (handler *Handler) cleanEntry(entry *HttpCacheEntry) {
+func (handler *Handler) cleanEntry(entry *HTTPCacheEntry) {
 	key := getKey(entry.Request)
 
 	lock := handler.URLLocks.Adquire(key)
@@ -115,7 +115,7 @@ func (handler *Handler) cleanEntry(entry *HttpCacheEntry) {
 	}
 }
 
-func (handler *Handler) respond(w http.ResponseWriter, entry *HttpCacheEntry, cacheStatus string) (int, error) {
+func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
 	body, err := entry.GetBodyReader()
 	if err != nil {
 		fmt.Println(err)
@@ -191,21 +191,17 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	// Third case: CACHE MISS
 	// The response is not in cache
 	// It should be fetched from upstream and save it in cache
-	if !exists {
-		newResult := <-FetchUpstream(handler.Next, r)
-		if newResult.err != nil {
-			fmt.Println(newResult.err)
-			lock.Unlock()
-			return 500, newResult.err
-		}
-		newEntry := newResult.entry
-		handler.respond(w, newEntry, cacheMiss)
-
-		handler.saveEntry(newEntry)
+	newResult := <-FetchUpstream(handler.Next, r)
+	if newResult.err != nil {
+		fmt.Println(newResult.err)
 		lock.Unlock()
-
-		return newEntry.Response.Code, nil
+		return 500, newResult.err
 	}
+	newEntry := newResult.entry
+	handler.respond(w, newEntry, cacheMiss)
 
-	return 500, nil
+	handler.saveEntry(newEntry)
+	lock.Unlock()
+
+	return newEntry.Response.Code, nil
 }

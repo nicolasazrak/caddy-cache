@@ -5,6 +5,7 @@ import (
 	"net/http"
 )
 
+// EventHandler is the interested in the events emited by the recorder
 type EventHandler interface {
 	onFirstByte(code int, headerMap http.Header) (io.Writer, error)
 	onFlush()
@@ -26,9 +27,10 @@ type StreamedRecorder struct {
 
 	eventHandler EventHandler
 
-	result      *http.Response // cache of Result's return value
-	snapHeader  http.Header    // snapshot of HeaderMap at first Write
-	wroteHeader bool
+	result        *http.Response // cache of Result's return value
+	snapHeader    http.Header    // snapshot of HeaderMap at first Write
+	wroteHeader   bool
+	firstByteSent bool
 }
 
 // NewStreamedRecorder returns an initialized StreamedRecorder.
@@ -83,6 +85,15 @@ func (rw *StreamedRecorder) writeHeader(b []byte, str string) {
 
 // Write always succeeds and writes to rw.Body, if not nil.
 func (rw *StreamedRecorder) Write(buf []byte) (int, error) {
+	if !rw.firstByteSent {
+		newBody, err := rw.eventHandler.onFirstByte(rw.Code, cloneHeader(rw.HeaderMap))
+		if err != nil {
+			return 0, err
+		}
+		rw.Body = newBody
+	}
+	rw.firstByteSent = true
+
 	if !rw.wroteHeader {
 		rw.writeHeader(buf, "")
 	}
@@ -105,11 +116,6 @@ func (rw *StreamedRecorder) WriteHeader(code int) {
 	rw.Code = code
 	rw.wroteHeader = true
 	rw.WriteHeader(code)
-
-	newBody, err := rw.eventHandler.onFirstByte(code, cloneHeader(rw.HeaderMap))
-	if err == nil {
-		rw.Body = newBody
-	}
 }
 
 func cloneHeader(h http.Header) http.Header {

@@ -23,7 +23,7 @@ func init() {
 // Setup creates a new cache middleware
 func Setup(c *caddy.Controller) error {
 	handler := &Handler{
-		Entries:  map[string][]*HttpCacheEntry{},
+		Entries:  map[string][]*HTTPCacheEntry{},
 		URLLocks: NewURLLock(),
 	}
 

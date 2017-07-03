@@ -9,6 +9,38 @@ import (
 	"github.com/pquerna/cachecontrol/cacheobject"
 )
 
+// CacheRule determines if a request should be cached
+type CacheRule interface {
+	matches(*http.Request, int, *http.Header) bool
+}
+
+// PathCacheRule matches if the request starts with given Path
+type PathCacheRule struct {
+	Path string
+}
+
+// HeaderCacheRule matches if given Header matches any of the values
+type HeaderCacheRule struct {
+	Header string
+	Value  []string
+}
+
+/* This rules decide if the request must be cached and are added to handler config if are present in Caddyfile */
+
+func (rule *PathCacheRule) matches(req *http.Request, statusCode int, respHeaders *http.Header) bool {
+	return strings.HasPrefix(req.URL.Path, rule.Path)
+}
+
+func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHeaders *http.Header) bool {
+	headerValue := respHeaders.Get(rule.Header)
+	for _, expectedValue := range rule.Value {
+		if expectedValue == headerValue {
+			return true
+		}
+	}
+	return false
+}
+
 func getCacheableStatus(r *http.Request, statusCode int, respHeaders http.Header) (bool, time.Time, error) {
 	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(r, statusCode, respHeaders, false)
 

@@ -9,7 +9,8 @@ import (
 	"time"
 )
 
-type HttpCacheEntry struct {
+// HTTPCacheEntry saves the request response of an http request
+type HTTPCacheEntry struct {
 	isPublic   bool
 	Expiration time.Time
 
@@ -24,6 +25,7 @@ type HttpCacheEntry struct {
 	Response *Response
 }
 
+// Response holds the information about an upstream response
 type Response struct {
 	Code      int         // the HTTP response code from WriteHeader
 	HeaderMap http.Header // the HTTP response headers
@@ -35,19 +37,20 @@ type Response struct {
 	bodyBuffer *ConcurrentBuffer
 }
 
-func NewHTTPCacheEntry(r *http.Request) *HttpCacheEntry {
-	return &HttpCacheEntry{
+// NewHTTPCacheEntry creates a new CacheEntry for the given request
+func NewHTTPCacheEntry(r *http.Request) *HTTPCacheEntry {
+	return &HTTPCacheEntry{
 		Request:           r,
 		subscribersLock:   new(sync.RWMutex),
 		closedLock:        new(sync.RWMutex),
-		noSubscribersChan: make(chan struct{}),
+		noSubscribersChan: make(chan struct{}, 1),
 	}
 }
 
 // Subscribe returns a channel that will emit an empty struct
 // each time there is a new content in body reader
-func (e *HttpCacheEntry) Subscribe() <-chan struct{} {
-	newSubscriber := make(chan struct{})
+func (e *HTTPCacheEntry) Subscribe() <-chan struct{} {
+	newSubscriber := make(chan struct{}, 1)
 
 	e.closedLock.Lock()
 	defer e.closedLock.Unlock()
@@ -59,21 +62,25 @@ func (e *HttpCacheEntry) Subscribe() <-chan struct{} {
 
 	e.subscribersLock.Lock()
 	defer e.subscribersLock.Unlock()
+
 	e.subscribers = append(e.subscribers, newSubscriber)
 	return newSubscriber
 }
 
-func (e *HttpCacheEntry) notifySubscribers() {
+func (e *HTTPCacheEntry) notifySubscribers() {
 	e.subscribersLock.RLock()
 	defer e.subscribersLock.RUnlock()
 	for _, subscriber := range e.subscribers {
-		subscriber <- struct{}{}
+		select {
+		case subscriber <- struct{}{}:
+		default:
+		}
 	}
 }
 
 // RemoveSubscriber removes a subscription
 // It is important to know that. Otherwise the entry cannot be cleaned
-func (e *HttpCacheEntry) RemoveSubscriber(subscriber <-chan struct{}) {
+func (e *HTTPCacheEntry) RemoveSubscriber(subscriber <-chan struct{}) {
 	e.subscribersLock.Lock()
 	defer e.subscribersLock.Unlock()
 	for i, x := range e.subscribers {
@@ -84,9 +91,11 @@ func (e *HttpCacheEntry) RemoveSubscriber(subscriber <-chan struct{}) {
 	}
 
 	if len(e.subscribers) == 0 {
-		go func() {
-			e.noSubscribersChan <- struct{}{}
-		}()
+		// Send a notification in a non-blocking way
+		select {
+		case e.noSubscribersChan <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -94,7 +103,7 @@ func (e *HttpCacheEntry) RemoveSubscriber(subscriber <-chan struct{}) {
 // There are no more subscribers. It's important to be sure
 // that there will be no new subscribers or that will probably
 // fail
-func (e *HttpCacheEntry) Clean() error {
+func (e *HTTPCacheEntry) Clean() error {
 	if e.Response.bodyFile == nil {
 		return nil
 	}
@@ -113,7 +122,7 @@ func (e *HttpCacheEntry) Clean() error {
 	return os.Remove(e.Response.bodyFile.Name())
 }
 
-func (e *HttpCacheEntry) OnFlush() {
+func (e *HTTPCacheEntry) OnFlush() {
 	e.closedLock.RLock()
 	defer e.closedLock.RUnlock()
 
@@ -123,18 +132,14 @@ func (e *HttpCacheEntry) OnFlush() {
 	e.notifySubscribers()
 }
 
-func (e *HttpCacheEntry) OnWrite() {
-	e.closedLock.RLock()
-	defer e.closedLock.RUnlock()
-
-	if e.isPublic {
-		e.Response.bodyFile.Sync()
-	}
-	e.notifySubscribers()
+// OnWrite is called to notify when a write was made in the response
+// To notify the subscribers
+func (e *HTTPCacheEntry) OnWrite() {
+	e.OnFlush()
 }
 
 // Close the entry meaning the the response has ended
-func (e *HttpCacheEntry) Close() error {
+func (e *HTTPCacheEntry) Close() error {
 	e.closedLock.Lock()
 	defer e.closedLock.Unlock()
 	e.closed = true
@@ -160,7 +165,8 @@ func (e *HttpCacheEntry) Close() error {
 // does not mean the body has ended, there might be more content
 // being fetched from upstream. So to know when the body has ended
 // The client has to use Subscribe() channel
-func (e *HttpCacheEntry) GetBodyReader() (io.ReadCloser, error) {
+// After using it the client should first close() and then Unsubscribe()
+func (e *HTTPCacheEntry) GetBodyReader() (io.ReadCloser, error) {
 	if !e.isPublic {
 		return ioutil.NopCloser(e.Response.bodyBuffer), nil
 	}
@@ -168,7 +174,7 @@ func (e *HttpCacheEntry) GetBodyReader() (io.ReadCloser, error) {
 	return os.Open(e.Response.bodyFile.Name())
 }
 
-func (e *HttpCacheEntry) GetBodyWriter() io.Writer {
+func (e *HTTPCacheEntry) GetBodyWriter() io.Writer {
 	if e.isPublic {
 		return e.Response.bodyFile
 	}
@@ -176,7 +182,7 @@ func (e *HttpCacheEntry) GetBodyWriter() io.Writer {
 	return e.Response.bodyBuffer
 }
 
-func (e *HttpCacheEntry) updateBodyWriter() error {
+func (e *HTTPCacheEntry) updateBodyWriter() error {
 	if !e.isPublic {
 		e.Response.bodyBuffer = new(ConcurrentBuffer)
 		return nil
@@ -193,7 +199,7 @@ func (e *HttpCacheEntry) updateBodyWriter() error {
 // UpdateResponse saves the response and updates
 // the isPublic, expiration values and more importantly
 // The bodyWriter
-func (e *HttpCacheEntry) UpdateResponse(response *Response) error {
+func (e *HTTPCacheEntry) UpdateResponse(response *Response) error {
 	isPublic, expiration, err := getCacheableStatus(e.Request, response.Code, response.HeaderMap)
 	if err != nil {
 		return err
