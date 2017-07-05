@@ -8,8 +8,8 @@ import (
 	"sync"
 )
 
-// EntryStorage represents a possible storage for the entry
-type EntryStorage interface {
+// ResponseStorage represents a possible storage for the entry
+type ResponseStorage interface {
 	io.Writer
 	io.Closer
 	Clean() error
@@ -19,23 +19,23 @@ type EntryStorage interface {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// BufferEntryStorage saves the content into a buffer
-type BufferEntryStorage struct {
+// BufferStorage saves the content into a buffer
+type BufferStorage struct {
 	b            *bytes.Buffer
 	m            *sync.RWMutex
 	subscription *Subscription
 }
 
 // NewBufferEntryStorage creates a new emptyStorage
-func NewBufferEntryStorage() (EntryStorage, error) {
-	return &BufferEntryStorage{
+func NewBufferEntryStorage() (ResponseStorage, error) {
+	return &BufferStorage{
 		subscription: NewSubscription(),
 		m:            new(sync.RWMutex),
 		b:            new(bytes.Buffer),
 	}, nil
 }
 
-func (b *BufferEntryStorage) Write(p []byte) (n int, err error) {
+func (b *BufferStorage) Write(p []byte) (n int, err error) {
 	b.m.Lock()
 	n, err = b.b.Write(p)
 	b.m.Unlock()
@@ -44,24 +44,24 @@ func (b *BufferEntryStorage) Write(p []byte) (n int, err error) {
 }
 
 // Flush does nothing in a buffer
-func (b *BufferEntryStorage) Flush() error {
+func (b *BufferStorage) Flush() error {
 	return nil
 }
 
 // Clean does nothing in the buffer it will be garbage collected eventually
-func (b *BufferEntryStorage) Clean() error {
+func (b *BufferStorage) Clean() error {
 	b.subscription.WaitAll()
 	return nil
 }
 
 // Close the storage entry
-func (b *BufferEntryStorage) Close() error {
+func (b *BufferStorage) Close() error {
 	b.subscription.Close()
 	return nil
 }
 
 // GetReader returns the same buffer
-func (b *BufferEntryStorage) GetReader() (io.ReadCloser, error) {
+func (b *BufferStorage) GetReader() (io.ReadCloser, error) {
 	return &StorageReader{
 		content:      &BufferReader{b: b.b, m: b.m},
 		subscription: b.subscription.NewSubscriber(),
@@ -87,49 +87,49 @@ func (b *BufferReader) Close() error {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// FileEntryStorage saves the content into a file
-type FileEntryStorage struct {
+// FileStorage saves the content into a file
+type FileStorage struct {
 	file         *os.File
 	subscription *Subscription
 }
 
 // NewFileEntryStorage creates a new temp file that will be used as a the storage of the cache entry
-func NewFileEntryStorage() (EntryStorage, error) {
+func NewFileEntryStorage() (ResponseStorage, error) {
 	file, err := ioutil.TempFile("", "caddy-cache-")
 	if err != nil {
 		return nil, err
 	}
-	return &FileEntryStorage{
+	return &FileStorage{
 		file:         file,
 		subscription: NewSubscription(),
 	}, nil
 }
 
-func (f *FileEntryStorage) Write(p []byte) (n int, err error) {
+func (f *FileStorage) Write(p []byte) (n int, err error) {
 	defer f.subscription.NotifyAll()
 	return f.file.Write(p)
 }
 
 // Flush syncs the underlying file
-func (f *FileEntryStorage) Flush() error {
+func (f *FileStorage) Flush() error {
 	defer f.subscription.NotifyAll()
 	return f.file.Sync()
 }
 
 // Clean removes the file
-func (f *FileEntryStorage) Clean() error {
+func (f *FileStorage) Clean() error {
 	f.subscription.WaitAll() // Wait until every subscriber ends waiting every result
 	return os.Remove(f.file.Name())
 }
 
 // Close the underlying file
-func (f *FileEntryStorage) Close() error {
+func (f *FileStorage) Close() error {
 	f.subscription.Close()
 	return f.file.Close()
 }
 
 // GetReader returns a new file descriptor to the same file
-func (f *FileEntryStorage) GetReader() (io.ReadCloser, error) {
+func (f *FileStorage) GetReader() (io.ReadCloser, error) {
 	newFile, err := os.Open(f.file.Name())
 	if err != nil {
 		return nil, err

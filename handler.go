@@ -97,7 +97,7 @@ func (handler *Handler) getEntry(r *http.Request) (*HTTPCacheEntry, bool) {
 
 func (handler *Handler) scheduleCleanEntry(entry *HTTPCacheEntry) {
 	go func(entry *HTTPCacheEntry) {
-		time.Sleep(entry.Expiration.Sub(time.Now().UTC()))
+		time.Sleep(entry.Expiration().Sub(time.Now().UTC()))
 		handler.cleanEntry(entry)
 	}(entry)
 }
@@ -120,12 +120,14 @@ func (handler *Handler) cleanEntry(entry *HTTPCacheEntry) {
 }
 
 func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
-	body, err := entry.GetBodyReader()
+	body, err := entry.Response.GetReader()
 	if err != nil {
 		fmt.Println(err)
 		return 500, err
 	}
-	defer body.Close()
+	if body != nil {
+		defer body.Close()
+	}
 
 	handler.addStatusHeaderIfConfigured(w, cacheStatus)
 	for k, values := range entry.Response.HeaderMap {
@@ -135,7 +137,9 @@ func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, ca
 	}
 	w.WriteHeader(entry.Response.Code)
 
-	io.Copy(w, body)
+	if body != nil {
+		io.Copy(w, body)
+	}
 
 	return entry.Response.Code, nil
 }
@@ -154,8 +158,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	// First case: CACHE HIT
 	// The response exists in cache and is public
 	// It should be served as saved
-	if exists && previousEntry.isPublic {
-		fmt.Println("Got public previousEntry")
+	if exists && previousEntry.IsPublic() {
 		lock.Unlock()
 		return handler.respond(w, previousEntry, cacheHit)
 	}
@@ -165,19 +168,19 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	// It should NOT be served from cache
 	// It should be fetched from upstream and check the new headers
 	// To check if the new response changes to public
-	if exists && !previousEntry.isPublic {
+	if exists && !previousEntry.IsPublic() {
 		lock.Unlock()
-		newResult := <-FetchUpstream(handler.Next, r)
+		newResult := FetchUpstream(handler.Next, r, handler.Config)
 		if newResult.err != nil {
-			fmt.Println(newResult.err)
 			lock.Unlock()
+			fmt.Println(newResult.err)
 			return 500, newResult.err
 		}
 		newEntry := newResult.entry
 		handler.respond(w, newEntry, cacheSkip)
 
 		// Case when response was private but now is public
-		if newEntry.isPublic {
+		if newEntry.IsPublic() {
 			lock := handler.URLLocks.Adquire(getKey(r))
 			handler.saveEntry(newEntry)
 			lock.Unlock()
@@ -189,11 +192,11 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	// Third case: CACHE MISS
 	// The response is not in cache
 	// It should be fetched from upstream and save it in cache
-	newResult := <-FetchUpstream(handler.Next, r)
+	newResult := FetchUpstream(handler.Next, r, handler.Config)
 	if newResult.err != nil {
-		fmt.Println(newResult.err)
 		lock.Unlock()
-		return 500, newResult.err
+		fmt.Println(newResult.err)
+		return newResult.entry.Response.Code, newResult.err
 	}
 	newEntry := newResult.entry
 

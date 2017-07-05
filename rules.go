@@ -41,8 +41,8 @@ func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHead
 	return false
 }
 
-func getCacheableStatus(r *http.Request, statusCode int, respHeaders http.Header) (bool, time.Time, error) {
-	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(r, statusCode, respHeaders, false)
+func getCacheableStatus(req *http.Request, response *Response, config *Config) (bool, time.Time, error) {
+	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, response.Code, response.HeaderMap, false)
 
 	if err != nil {
 		return false, time.Now(), err
@@ -54,8 +54,8 @@ func getCacheableStatus(r *http.Request, statusCode int, respHeaders http.Header
 		return false, time.Now(), nil
 	}
 
-	varyHeaders, ok := respHeaders["Vary"]
-	if ok && varyHeaders[0] == "*" {
+	varyHeader := response.HeaderMap.Get("Vary")
+	if varyHeader == "*" {
 		return false, time.Now(), nil
 	}
 

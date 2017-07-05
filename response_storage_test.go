@@ -108,7 +108,7 @@ func TestFileStorage(t *testing.T) {
 		s, err := NewFileEntryStorage()
 		require.NoError(t, err)
 
-		_, err = os.Stat(s.(*FileEntryStorage).file.Name())
+		_, err = os.Stat(s.(*FileStorage).file.Name())
 		require.NoError(t, err)
 
 		s.Close()
@@ -121,7 +121,7 @@ func TestFileStorage(t *testing.T) {
 		s.Close()
 		s.Clean()
 
-		_, err = os.Stat(s.(*FileEntryStorage).file.Name())
+		_, err = os.Stat(s.(*FileStorage).file.Name())
 		if !os.IsNotExist(err) {
 			t.Fail()
 		}
