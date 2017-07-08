@@ -63,8 +63,8 @@ func (e *HTTPCacheEntry) WriteBodyTo(w http.ResponseWriter) error {
 	return e.writePublicResponse(w)
 }
 
-func (e *HTTPCacheEntry) setStorage() error {
-	storage, err := NewFileStorage()
+func (e *HTTPCacheEntry) setStorage(config *Config) error {
+	storage, err := NewFileStorage(config.Path)
 
 	// Set the storage even if it is nil to continue and stop the upstream request
 	e.Response.SetBody(storage)

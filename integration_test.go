@@ -50,7 +50,7 @@ func TestPublicResponseWithBody(t *testing.T) {
 		w.Header().Add("Cache-control", "max-age=1")
 		w.Write(content)
 		return 200, nil
-	}))
+	}), emptyConfig())
 
 	requestAndAssert(t, h, 200, cacheMiss, content)
 	requestAndAssert(t, h, 200, cacheHit, content)
@@ -63,7 +63,7 @@ func TestPublicResponseWithoutBody(t *testing.T) {
 		hits++
 		w.Header().Add("Cache-control", "max-age=1")
 		return 200, nil
-	}))
+	}), emptyConfig())
 
 	requestAndAssert(t, h, 200, cacheMiss, []byte{})
 	requestAndAssert(t, h, 200, cacheHit, []byte{})
@@ -78,7 +78,7 @@ func TestPrivateResponseWithBody(t *testing.T) {
 		w.Header().Add("Cache-control", "private")
 		w.Write(content)
 		return 200, nil
-	}))
+	}), emptyConfig())
 
 	requestAndAssert(t, h, 200, cacheMiss, content)
 	requestAndAssert(t, h, 200, cacheSkip, content)
@@ -91,7 +91,7 @@ func TestPrivateResponseWithoutBody(t *testing.T) {
 		hits++
 		w.Header().Add("Cache-control", "private")
 		return 200, nil
-	}))
+	}), emptyConfig())
 
 	requestAndAssert(t, h, 200, cacheMiss, []byte{})
 	requestAndAssert(t, h, 200, cacheSkip, []byte{})
@@ -102,7 +102,7 @@ func TestHandlerError(t *testing.T) {
 	badGateway := errors.New("Bad gateway")
 	h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
 		return 503, badGateway
-	}))
+	}), emptyConfig())
 
 	_, err1 := doRequest(t, h)
 	require.Equal(t, badGateway, err1)

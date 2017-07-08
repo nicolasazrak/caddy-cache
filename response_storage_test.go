@@ -13,7 +13,7 @@ import (
 
 func TestFileStorage(t *testing.T) {
 	t.Run("should be abile to read after write", func(t *testing.T) {
-		s, err := NewFileStorage()
+		s, err := NewFileStorage("")
 		require.NoError(t, err)
 
 		reader, _ := s.GetReader()
@@ -28,7 +28,7 @@ func TestFileStorage(t *testing.T) {
 	})
 
 	t.Run("should create a file", func(t *testing.T) {
-		s, err := NewFileStorage()
+		s, err := NewFileStorage("")
 		require.NoError(t, err)
 
 		_, err = os.Stat(s.(*FileStorage).file.Name())
@@ -38,7 +38,7 @@ func TestFileStorage(t *testing.T) {
 	})
 
 	t.Run("should delete a file when is cleaned", func(t *testing.T) {
-		s, err := NewFileStorage()
+		s, err := NewFileStorage("")
 		require.NoError(t, err)
 
 		s.Close()

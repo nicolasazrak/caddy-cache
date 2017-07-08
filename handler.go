@@ -40,8 +40,9 @@ func getKey(r *http.Request) string {
 }
 
 // NewHandler creates a new Handler using Next middleware
-func NewHandler(Next httpserver.Handler) *Handler {
+func NewHandler(Next httpserver.Handler, config *Config) *Handler {
 	return &Handler{
+		Config:   config,
 		Cache:    NewHTTPCache(),
 		URLLocks: NewURLLock(),
 		Next:     Next,
@@ -51,7 +52,9 @@ func NewHandler(Next httpserver.Handler) *Handler {
 /* Responses */
 
 func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
-	w.Header().Add("X-Cache-status", status)
+	if handler.Config.StatusHeader != "" {
+		w.Header().Add(handler.Config.StatusHeader, status)
+	}
 }
 
 func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
@@ -149,7 +152,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 
 		// Case when response was private but now is public
 		if entry.isPublic {
-			err := entry.setStorage()
+			err := entry.setStorage(handler.Config)
 			if err != nil {
 				return 500, err
 			}
@@ -173,7 +176,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	// Entry is always saved, even if it is not public
 	// This is to release the URL lock.
 	if entry.isPublic {
-		err := entry.setStorage()
+		err := entry.setStorage(handler.Config)
 		if err != nil {
 			lock.Unlock()
 			return 500, err

@@ -10,16 +10,12 @@ This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 
 To use it you need to compile your own version of caddy with this plugin. First fetch the code
 
-- `go get -u github.com/mholt/caddy`
-- `go get -u github.com/nicolasazrak/caddy-cache`
-- `cd $GOPATH/src/github.com/mholt/caddy`
-- `go get ./... # Fetch dependencies recursively`
-- `cd $GOPATH/src/github.com/nicolasazrak/caddy-cache`
-- `go get ./...`
+- `go get -u github.com/mholt/caddy/...`
+- `go get -u github.com/nicolasazrak/caddy-cache/...`
 
 Then update the file in `$GOPATH/src/github.com/mholt/caddy/caddy/caddymain/run.go` and import `_ "github.com/nicolasazrak/caddy-cache"`.
 
-And Then build the caddy with:
+And finally build caddy with:
 
 - `cd $GOPATH/src/github.com/mholt/caddy/caddy`
 - `./build.bash`
@@ -41,24 +37,21 @@ This will store in cache responses that specifically have a `Cache-control`, `Ex
 
 For more advanced usages you can use the following parameters: 
 
-- `default_max_age:` Sets the default max age for responses without a `Cache-control` or `Expires` header. (Default: 60 seconds)
-- `status_header:` Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit
-- `match:` Sets rules to make responses cacheable, if any matches and the response is cacheable by https://tools.ietf.org/html/rfc7234 then it will be stored. Supported options are:
-    - `path`: check if the request starts with this path
-    - `header`: checks if the response contains a header with one of the specified values
-- `storage`: There are two storage engines:
-    - `̀mmap` It stores the files contents in a file in /tmp You can specify where to store the files. Keep in mind that it is not persistent. Every time the server is restarted the files will be created again.
-    - `memory` It stores the files contents in a byte array in memory
+- `match_path`: Paths to cache. For example `match_path /assets` will cache all successful responses for requests that start with /assets and are not marked as private.
+- `match_header`: Matches responses that have the selected headers. For example `match_header Content-Type image/png image/jpg` will cache all successful responses that with content type `image/png` OR `image/jpg`. Note that if more than one is specified, anyone that matches will make the response cacheable. 
+- `path`: Path where to store the cached responses. By default it will use the operating system temp folder.
+- `default_max_age`: Max-age to use for matched responses that do not have an explicit expiration. (Default: 5 minutes)
+- `status_header`: Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit. (Default: `X-Cache-Status`)
 
 ```
 caddy.test {
     proxy / yourserver:5000
     cache {
-        match path /assets
-        match header Content-Type image/jpg image/png
-        default_max_age 10
+        match_path /assets
+        match_header Content-Type image/jpg image/png
         status_header X-Cache-Status
-        storage mmap /tmp/caddy-cache
+        default_max_age 15m
+        path /tmp/caddy-cache
     }
 }
 ```

@@ -11,7 +11,7 @@ import (
 
 // CacheRule determines if a request should be cached
 type CacheRule interface {
-	matches(*http.Request, int, *http.Header) bool
+	matches(*http.Request, int, http.Header) bool
 }
 
 // PathCacheRule matches if the request starts with given Path
@@ -27,11 +27,11 @@ type HeaderCacheRule struct {
 
 /* This rules decide if the request must be cached and are added to handler config if are present in Caddyfile */
 
-func (rule *PathCacheRule) matches(req *http.Request, statusCode int, respHeaders *http.Header) bool {
+func (rule *PathCacheRule) matches(req *http.Request, statusCode int, respHeaders http.Header) bool {
 	return strings.HasPrefix(req.URL.Path, rule.Path)
 }
 
-func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHeaders *http.Header) bool {
+func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHeaders http.Header) bool {
 	headerValue := respHeaders.Get(rule.Header)
 	for _, expectedValue := range rule.Value {
 		if expectedValue == headerValue {
@@ -52,20 +52,30 @@ func getCacheableStatus(req *http.Request, response *Response, config *Config) (
 
 	isPublic := len(reasonsNotToCache) == 0
 
-	if expiration.Before(time.Now()) {
-		expiration = time.Now().Add(time.Duration(5) * time.Minute)
-	}
-
 	if !isPublic {
-		return false, expiration
+		return false, time.Now().Add(config.LockTimeout)
 	}
 
 	varyHeader := response.HeaderMap.Get("Vary")
 	if varyHeader == "*" {
-		return false, expiration
+		return false, time.Now().Add(config.LockTimeout)
 	}
 
-	return true, expiration
+	// Check if any rule matches
+	for _, rule := range config.CacheRules {
+		if rule.matches(req, response.Code, response.Header()) {
+
+			// If any rule matches but the response has no explicit expiration
+			if expiration.Before(time.Now()) {
+				// Use the default max age
+				expiration = expiration.Add(config.DefaultMaxAge)
+			}
+			return true, expiration
+		}
+	}
+
+	// isPublic only if has an explicit expiration
+	return expiration.After(time.Now()), expiration
 }
 
 func matchesVary(currentRequest *http.Request, previousResponse *Response) bool {

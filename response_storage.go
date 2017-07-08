@@ -70,8 +70,8 @@ type FileStorage struct {
 }
 
 // NewFileStorage creates a new temp file that will be used as a the storage of the cache entry
-func NewFileStorage() (ResponseStorage, error) {
-	file, err := ioutil.TempFile("", "caddy-cache-")
+func NewFileStorage(path string) (ResponseStorage, error) {
+	file, err := ioutil.TempFile(path, "caddy-cache-")
 	if err != nil {
 		return nil, err
 	}
