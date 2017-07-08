@@ -40,6 +40,7 @@ func getKey(r *http.Request) string {
 	return key
 }
 
+// NewHandler creates a new Handler using Next middleware
 func NewHandler(Next httpserver.Handler) *Handler {
 	return &Handler{
 		Entries:  map[string][]*HTTPCacheEntry{},
@@ -76,7 +77,7 @@ func (handler *Handler) getEntry(r *http.Request) (*HTTPCacheEntry, bool) {
 	}
 
 	for _, entry := range previousEntries {
-		if matchesVary(r, entry.Response) {
+		if entry.Fresh() && matchesVary(r, entry.Response) {
 			return entry, true
 		}
 	}
@@ -116,6 +117,8 @@ func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, statu
 
 func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
 	handler.addStatusHeaderIfConfigured(w, cacheStatus)
+
+	// Send entry headers
 	for k, values := range entry.Response.HeaderMap {
 		for _, v := range values {
 			w.Header().Add(k, v)
@@ -147,19 +150,30 @@ func shouldUseCache(req *http.Request) bool {
 }
 
 func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error) {
+	// Create a new empty response
 	response := NewResponse()
 
 	var err error
 
+	// Do the upstream fetching in background
 	go func(req *http.Request, response *Response) {
 		statusCode, upstreamError := handler.Next.ServeHTTP(response, req)
 		err = upstreamError
 		response.WriteHeader(statusCode) // If headers were not set this will replace them
+
+		// Wait the response body to be set.
+		// If it is private it will be the original http.ResponseWriter
+		// It is required to wait the body to prevent closing the response
+		// before the body was set. If that happens the body will
+		// stay locked waiting the response to be closed
 		response.WaitBody()
 		response.Close()
 	}(req, response)
 
+	// Wait headers to de sent
 	response.WaitHeaders()
+
+	// Create a new CacheEntry
 	return NewHTTPCacheEntry(req, response, handler.Config), err
 }
 
@@ -200,9 +214,12 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 			if err != nil {
 				return 500, err
 			}
+
+			// Adquire the URLLock before saving the new entry
 			lock := handler.URLLocks.Adquire(getKey(r))
 			handler.saveEntry(entry)
 			lock.Unlock()
+			return handler.respond(w, entry, cacheMiss)
 		}
 
 		return handler.respond(w, entry, cacheSkip)
@@ -225,6 +242,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 			return 500, err
 		}
 	}
+
 	handler.saveEntry(entry)
 	lock.Unlock()
 	return handler.respond(w, entry, cacheMiss)

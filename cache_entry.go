@@ -15,8 +15,8 @@ type HTTPCacheEntry struct {
 	Response *Response
 }
 
-// NewHTTPCacheEntry creates a new HTTPCacheEntry for the given request
-// and creates a new storage for the body in case the response is public
+// NewHTTPCacheEntry creates a new HTTPCacheEntry for the given request and response
+// and it also calculates if the response is public
 func NewHTTPCacheEntry(request *http.Request, response *Response, config *Config) *HTTPCacheEntry {
 	isPublic, expiration := getCacheableStatus(request, response, config)
 
@@ -28,6 +28,7 @@ func NewHTTPCacheEntry(request *http.Request, response *Response, config *Config
 	}
 }
 
+// Clean removes the response if it has an associated file
 func (e *HTTPCacheEntry) Clean() error {
 	return e.Response.Clean()
 }
@@ -48,6 +49,7 @@ func (e *HTTPCacheEntry) writePrivateResponse(w http.ResponseWriter) error {
 	return nil
 }
 
+// WriteBodyTo sends the body to the http.ResponseWritter
 func (e *HTTPCacheEntry) WriteBodyTo(w http.ResponseWriter) error {
 	if !e.isPublic {
 		return e.writePrivateResponse(w)
@@ -62,4 +64,9 @@ func (e *HTTPCacheEntry) setStorage() error {
 	e.Response.SetBody(storage)
 
 	return err
+}
+
+// Fresh returns if the entry is still fresh
+func (e *HTTPCacheEntry) Fresh() bool {
+	return e.expiration.After(time.Now())
 }

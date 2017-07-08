@@ -77,6 +77,9 @@ func (rw *Response) writeHeader(b []byte, str string) {
 	rw.WriteHeader(200)
 }
 
+// Write is the io.Writer interface with the modification required
+// To wait the body. This will wait until SetBody is called with
+// The desired storage.
 func (rw *Response) Write(buf []byte) (int, error) {
 	if !rw.wroteHeader {
 		rw.writeHeader(buf, "")
@@ -94,14 +97,17 @@ func (rw *Response) Write(buf []byte) (int, error) {
 	return 0, errors.New("No storage")
 }
 
+// WaitClose blocks until Close is called
 func (rw *Response) WaitClose() {
 	rw.closedLock.RLock()
 }
 
+// WaitBody blocks until body is Set
 func (rw *Response) WaitBody() {
 	rw.bodyLock.RLock()
 }
 
+// WaitHeaders blocks until headers are sent
 func (rw *Response) WaitHeaders() {
 	rw.headersLock.RLock()
 }
@@ -120,18 +126,23 @@ func (rw *Response) WriteHeader(code int) {
 	rw.headersLock.Unlock()
 }
 
-func (rw *Response) Flush() error {
+func (rw *Response) Flush() {
 	if !rw.wroteHeader {
 		rw.WriteHeader(200)
 	}
 
 	if rw.body == nil {
-		return nil
+		return
 	}
 
-	return rw.body.Flush()
+	rw.body.Flush()
+	return
 }
 
+// Close means there won't be any more Writes
+// It closes body if it was set before
+// It should be called after SetBody using WaitBody()
+// Otherwise body won't be closed blocking the response
 func (rw *Response) Close() error {
 	defer rw.closedLock.Unlock()
 
@@ -141,6 +152,7 @@ func (rw *Response) Close() error {
 	return nil
 }
 
+// Clean the body if it is set
 func (rw *Response) Clean() error {
 	if rw.body == nil {
 		return nil
