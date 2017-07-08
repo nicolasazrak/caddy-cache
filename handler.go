@@ -2,7 +2,6 @@ package cache
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
@@ -12,8 +11,8 @@ type Handler struct {
 	// Handler configuration
 	Config *Config
 
-	// A map with URL -> List of cached entries
-	Entries map[string][]*HTTPCacheEntry
+	// Cache is where entries are stored
+	Cache *HTTPCache
 
 	// Next handler
 	Next httpserver.Handler
@@ -43,69 +42,9 @@ func getKey(r *http.Request) string {
 // NewHandler creates a new Handler using Next middleware
 func NewHandler(Next httpserver.Handler) *Handler {
 	return &Handler{
-		Entries:  map[string][]*HTTPCacheEntry{},
+		Cache:    NewHTTPCache(),
 		URLLocks: NewURLLock(),
 		Next:     Next,
-	}
-}
-
-/* Entries */
-
-func (handler *Handler) saveEntry(updatedEntry *HTTPCacheEntry) {
-	key := getKey(updatedEntry.Request)
-
-	handler.scheduleCleanEntry(updatedEntry)
-
-	for i, previousEntry := range handler.Entries[key] {
-		if matchesVary(updatedEntry.Request, previousEntry.Response) {
-			go previousEntry.Clean()
-			handler.Entries[key][i] = updatedEntry
-			return
-		}
-	}
-
-	handler.Entries[key] = append(handler.Entries[key], updatedEntry)
-}
-
-func (handler *Handler) getEntry(r *http.Request) (*HTTPCacheEntry, bool) {
-	// TODO fix data race
-	// Why is it happening? Gorace detects a race between this and cleanEntry
-	previousEntries, exists := handler.Entries[getKey(r)]
-
-	if !exists {
-		return nil, false
-	}
-
-	for _, entry := range previousEntries {
-		if entry.Fresh() && matchesVary(r, entry.Response) {
-			return entry, true
-		}
-	}
-
-	return nil, false
-}
-
-func (handler *Handler) scheduleCleanEntry(entry *HTTPCacheEntry) {
-	go func(entry *HTTPCacheEntry) {
-		time.Sleep(entry.expiration.Sub(time.Now().UTC()))
-		handler.cleanEntry(entry)
-	}(entry)
-}
-
-func (handler *Handler) cleanEntry(entry *HTTPCacheEntry) {
-	key := getKey(entry.Request)
-
-	lock := handler.URLLocks.Adquire(key)
-	defer lock.Unlock()
-
-	for i, otherEntry := range handler.Entries[getKey(entry.Request)] {
-		if entry == otherEntry {
-			// TODO fix data race
-			// Why is it happening?
-			handler.Entries[key] = append(handler.Entries[key][:i], handler.Entries[key][i+1:]...)
-			entry.Clean()
-			return
-		}
 	}
 }
 
@@ -174,7 +113,7 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 	response.WaitHeaders()
 
 	// Create a new CacheEntry
-	return NewHTTPCacheEntry(req, response, handler.Config), err
+	return NewHTTPCacheEntry(getKey(req), req, response, handler.Config), err
 }
 
 func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
@@ -186,7 +125,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	lock := handler.URLLocks.Adquire(getKey(r))
 
 	// Lookup correct entry
-	previousEntry, exists := handler.getEntry(r)
+	previousEntry, exists := handler.Cache.Get(r)
 
 	// First case: CACHE HIT
 	// The response exists in cache and is public
@@ -215,10 +154,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 				return 500, err
 			}
 
-			// Adquire the URLLock before saving the new entry
-			lock := handler.URLLocks.Adquire(getKey(r))
-			handler.saveEntry(entry)
-			lock.Unlock()
+			handler.Cache.Put(r, entry)
 			return handler.respond(w, entry, cacheMiss)
 		}
 
@@ -239,11 +175,12 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	if entry.isPublic {
 		err := entry.setStorage()
 		if err != nil {
+			lock.Unlock()
 			return 500, err
 		}
 	}
 
-	handler.saveEntry(entry)
+	handler.Cache.Put(r, entry)
 	lock.Unlock()
 	return handler.respond(w, entry, cacheMiss)
 }

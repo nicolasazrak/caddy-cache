@@ -6,18 +6,18 @@ import (
 	"sync"
 )
 
-const bucketsSize = 256
+const urlLockBucketsSize = 256
 
 type URLLock struct {
-	globalLocks [bucketsSize]*sync.Mutex
-	keys        [bucketsSize]map[string]*sync.Mutex
+	globalLocks [urlLockBucketsSize]*sync.Mutex
+	keys        [urlLockBucketsSize]map[string]*sync.Mutex
 }
 
 func NewURLLock() *URLLock {
-	globalLocks := [bucketsSize]*sync.Mutex{}
-	keys := [bucketsSize]map[string]*sync.Mutex{}
+	globalLocks := [urlLockBucketsSize]*sync.Mutex{}
+	keys := [urlLockBucketsSize]map[string]*sync.Mutex{}
 
-	for i := 0; i < int(bucketsSize); i++ {
+	for i := 0; i < int(urlLockBucketsSize); i++ {
 		globalLocks[i] = new(sync.Mutex)
 		keys[i] = make(map[string]*sync.Mutex)
 	}
@@ -44,5 +44,5 @@ func (allLocks *URLLock) Adquire(key string) *sync.Mutex {
 }
 
 func (allLocks *URLLock) getBucketIndexForKey(key string) uint32 {
-	return uint32(math.Mod(float64(crc32.ChecksumIEEE([]byte(key))), float64(bucketsSize)))
+	return uint32(math.Mod(float64(crc32.ChecksumIEEE([]byte(key))), float64(urlLockBucketsSize)))
 }

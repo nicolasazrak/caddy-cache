@@ -10,6 +10,7 @@ import (
 type HTTPCacheEntry struct {
 	isPublic   bool
 	expiration time.Time
+	key        string
 
 	Request  *http.Request
 	Response *Response
@@ -17,15 +18,20 @@ type HTTPCacheEntry struct {
 
 // NewHTTPCacheEntry creates a new HTTPCacheEntry for the given request and response
 // and it also calculates if the response is public
-func NewHTTPCacheEntry(request *http.Request, response *Response, config *Config) *HTTPCacheEntry {
+func NewHTTPCacheEntry(key string, request *http.Request, response *Response, config *Config) *HTTPCacheEntry {
 	isPublic, expiration := getCacheableStatus(request, response, config)
 
 	return &HTTPCacheEntry{
+		key:        key,
 		isPublic:   isPublic,
 		expiration: expiration,
 		Request:    request,
 		Response:   response,
 	}
+}
+
+func (e *HTTPCacheEntry) Key() string {
+	return e.key
 }
 
 // Clean removes the response if it has an associated file
