@@ -1,39 +1,41 @@
 package cache
 
 import (
-	"io"
+	"errors"
 	"net/http"
-	"time"
+	"sync"
 )
 
 type Response struct {
-	isPublic   bool
-	expiration time.Time
-
 	Code      int         // the HTTP response code from WriteHeader
 	HeaderMap http.Header // the HTTP response headers
 	body      ResponseStorage
 
-	wroteHeader    bool
-	firstByteSent  bool
-	storageBuilder *StorageBuilder
+	wroteHeader   bool
+	firstByteSent bool
 
-	errorChan   chan error
-	headersChan chan http.Header
+	bodyLock    *sync.RWMutex
+	closedLock  *sync.RWMutex
+	headersLock *sync.RWMutex
+	closeNotify chan bool
 }
 
 // NewResponse returns an initialized Response.
-func NewResponse(buildStorage *StorageBuilder) *Response {
-	return &Response{
-		isPublic:       false,
-		expiration:     time.Now(),
-		Code:           200,
-		HeaderMap:      http.Header{},
-		body:           nil,
-		storageBuilder: buildStorage,
-		errorChan:      make(chan error, 1),
-		headersChan:    make(chan http.Header, 1),
+func NewResponse() *Response {
+	r := &Response{
+		Code:        200,
+		HeaderMap:   http.Header{},
+		body:        nil,
+		closeNotify: make(chan bool, 1),
+		bodyLock:    new(sync.RWMutex),
+		closedLock:  new(sync.RWMutex),
+		headersLock: new(sync.RWMutex),
 	}
+
+	r.bodyLock.Lock()
+	r.closedLock.Lock()
+	r.headersLock.Lock()
+	return r
 }
 
 // Header returns the response headers.
@@ -41,11 +43,10 @@ func (rw *Response) Header() http.Header {
 	return rw.HeaderMap
 }
 
-// TODO
-// // fix StreamRecorder is not CloseNotify
-// func (rw *Response) CloseNotify() <-chan bool {
-// 	return rw.w.(http.CloseNotifier).CloseNotify()
-// }
+// TODO check this
+func (rw *Response) CloseNotify() <-chan bool {
+	return rw.closeNotify
+}
 
 // writeHeader writes a header if it was not written yet and
 // detects Content-Type if needed.
@@ -76,101 +77,74 @@ func (rw *Response) writeHeader(b []byte, str string) {
 	rw.WriteHeader(200)
 }
 
-func (rw *Response) handleFirstByte() error {
-	// Prevent blocking
-	select {
-	case rw.headersChan <- rw.HeaderMap:
-	default:
-	}
-
-	isPublic, expiration, newBody, err := rw.storageBuilder.BuildStorage(rw)
-	if err != nil {
-		select {
-		case rw.errorChan <- err:
-		default:
-		}
-		return err
-	}
-
-	rw.isPublic = isPublic
-	rw.expiration = expiration
-	rw.body = newBody
-	return nil
-}
-
-// Write always succeeds and writes to rw.Body, if not nil.
 func (rw *Response) Write(buf []byte) (int, error) {
-	if !rw.firstByteSent {
-		rw.firstByteSent = true
-		err := rw.handleFirstByte()
-		if err != nil {
-			return 0, err
-		}
-	}
-
 	if !rw.wroteHeader {
 		rw.writeHeader(buf, "")
 	}
 
-	return rw.body.Write(buf)
+	if !rw.firstByteSent {
+		rw.firstByteSent = true
+		rw.WaitBody()
+	}
+
+	if rw.body != nil {
+		return rw.body.Write(buf)
+	}
+
+	return 0, errors.New("No storage")
 }
 
-// WriteHeader sets rw.Code. After it is called, changing rw.Header
-// will not affect rw.HeaderMap.
+func (rw *Response) WaitClose() {
+	rw.closedLock.RLock()
+}
+
+func (rw *Response) WaitBody() {
+	rw.bodyLock.RLock()
+}
+
+func (rw *Response) WaitHeaders() {
+	rw.headersLock.RLock()
+}
+
+func (rw *Response) SetBody(body ResponseStorage) {
+	rw.body = body
+	rw.bodyLock.Unlock()
+}
+
 func (rw *Response) WriteHeader(code int) {
 	if rw.wroteHeader {
 		return
 	}
 	rw.Code = code
 	rw.wroteHeader = true
+	rw.headersLock.Unlock()
 }
 
-func (rw *Response) replaceCode(code int) {
-	if !rw.firstByteSent {
-		rw.Code = code
-	}
-}
-
-func cloneHeader(h http.Header) http.Header {
-	h2 := make(http.Header, len(h))
-	for k, vv := range h {
-		vv2 := make([]string, len(vv))
-		copy(vv2, vv)
-		h2[k] = vv2
-	}
-	return h2
-}
-
-// Flush sets rw.Flushed to true.
-func (rw *Response) Flush() {
+func (rw *Response) Flush() error {
 	if !rw.wroteHeader {
 		rw.WriteHeader(200)
 	}
 
-	if rw.body != nil {
-		rw.body.Flush()
-	}
-}
-
-func (rw *Response) GetReader() (io.ReadCloser, error) {
-	if rw.body == nil {
-		return nil, nil
-	}
-	return rw.body.GetReader()
-}
-
-// Close the entry meaning the the response has ended
-func (rw *Response) Close() error {
 	if rw.body == nil {
 		return nil
 	}
 
-	return rw.body.Close()
+	return rw.body.Flush()
+}
+
+func (rw *Response) Close() error {
+	defer rw.closedLock.Unlock()
+
+	if rw.body != nil {
+		return rw.body.Close()
+	}
+	return nil
 }
 
 func (rw *Response) Clean() error {
-	if rw.body != nil {
-		return rw.body.Clean()
+	if rw.body == nil {
+		return nil
 	}
-	return nil
+
+	return rw.body.Clean()
 }

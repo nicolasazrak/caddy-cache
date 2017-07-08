@@ -41,25 +41,31 @@ func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHead
 	return false
 }
 
-func getCacheableStatus(req *http.Request, response *Response, config *Config) (bool, time.Time, error) {
+func getCacheableStatus(req *http.Request, response *Response, config *Config) (bool, time.Time) {
 	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, response.Code, response.HeaderMap, false)
 
+	// err means there was an error parsing headers
+	// Just ignore them and make response not cacheable
 	if err != nil {
-		return false, time.Now(), err
+		return false, time.Time{}
 	}
 
-	canBeStored := len(reasonsNotToCache) == 0
+	isPublic := len(reasonsNotToCache) == 0
 
-	if !canBeStored {
-		return false, time.Now(), nil
+	if expiration.Before(time.Now()) {
+		expiration = time.Now().Add(time.Duration(5) * time.Minute)
+	}
+
+	if !isPublic {
+		return false, expiration
 	}
 
 	varyHeader := response.HeaderMap.Get("Vary")
 	if varyHeader == "*" {
-		return false, time.Now(), nil
+		return false, expiration
 	}
 
-	return expiration.After(time.Now().UTC()), expiration, nil
+	return true, expiration
 }
 
 func matchesVary(currentRequest *http.Request, previousResponse *Response) bool {

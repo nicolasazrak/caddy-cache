@@ -1,9 +1,10 @@
 package cache
 
 import (
-	"bytes"
+	"errors"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"sync"
 )
@@ -19,70 +20,45 @@ type ResponseStorage interface {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// BufferStorage saves the content into a buffer
-type BufferStorage struct {
-	b            *bytes.Buffer
-	m            *sync.RWMutex
-	subscription *Subscription
+// NoStorage writes the content directly into the ResponseWriter
+// TODO remove this
+type NoStorage struct {
+	w http.ResponseWriter
 }
 
-// NewBufferEntryStorage creates a new emptyStorage
-func NewBufferEntryStorage() (ResponseStorage, error) {
-	return &BufferStorage{
-		subscription: NewSubscription(),
-		m:            new(sync.RWMutex),
-		b:            new(bytes.Buffer),
-	}, nil
+// WrapResponseWriter wraps an http.ResponseWriter and gives it
+// the ResponseStorage interface
+func WrapResponseWriter(w http.ResponseWriter) ResponseStorage {
+	return &NoStorage{
+		w: w,
+	}
 }
 
-func (b *BufferStorage) Write(p []byte) (n int, err error) {
-	b.m.Lock()
-	n, err = b.b.Write(p)
-	b.m.Unlock()
-	b.subscription.NotifyAll()
-	return n, err
+func (b *NoStorage) Write(p []byte) (n int, err error) {
+	return b.w.Write(p)
 }
 
 // Flush does nothing in a buffer
-func (b *BufferStorage) Flush() error {
+func (b *NoStorage) Flush() error {
+	if f, ok := b.w.(http.Flusher); ok {
+		f.Flush()
+	}
 	return nil
 }
 
 // Clean does nothing in the buffer it will be garbage collected eventually
-func (b *BufferStorage) Clean() error {
-	b.subscription.WaitAll()
+func (b *NoStorage) Clean() error {
 	return nil
 }
 
 // Close the storage entry
-func (b *BufferStorage) Close() error {
-	b.subscription.Close()
+func (b *NoStorage) Close() error {
 	return nil
 }
 
 // GetReader returns the same buffer
-func (b *BufferStorage) GetReader() (io.ReadCloser, error) {
-	return &StorageReader{
-		content:      &BufferReader{b: b.b, m: b.m},
-		subscription: b.subscription.NewSubscriber(),
-		unsubscribe:  b.subscription.RemoveSubscriber,
-	}, nil
-}
-
-// BufferReader reads the buffer using the writing lock to prevent race conditions
-type BufferReader struct {
-	b *bytes.Buffer
-	m *sync.RWMutex
-}
-
-func (b *BufferReader) Read(p []byte) (n int, err error) {
-	b.m.RLock()
-	defer b.m.RUnlock()
-	return b.b.Read(p)
-}
-
-func (b *BufferReader) Close() error {
-	return nil
+func (b *NoStorage) GetReader() (io.ReadCloser, error) {
+	return nil, errors.New("Private responses are no redable")
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -93,8 +69,8 @@ type FileStorage struct {
 	subscription *Subscription
 }
 
-// NewFileEntryStorage creates a new temp file that will be used as a the storage of the cache entry
-func NewFileEntryStorage() (ResponseStorage, error) {
+// NewFileStorage creates a new temp file that will be used as a the storage of the cache entry
+func NewFileStorage() (ResponseStorage, error) {
 	file, err := ioutil.TempFile("", "caddy-cache-")
 	if err != nil {
 		return nil, err

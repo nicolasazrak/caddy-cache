@@ -22,14 +22,8 @@ func init() {
 
 // Setup creates a new cache middleware
 func Setup(c *caddy.Controller) error {
-	handler := &Handler{
-		Entries:  map[string][]*HTTPCacheEntry{},
-		URLLocks: NewURLLock(),
-	}
-
 	httpserver.GetConfig(c).AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
-		handler.Next = next
-		return handler
+		return NewHandler(next)
 	})
 
 	return nil

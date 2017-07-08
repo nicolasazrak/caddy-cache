@@ -1,8 +1,6 @@
 package cache
 
 import (
-	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -42,28 +40,19 @@ func getKey(r *http.Request) string {
 	return key
 }
 
-func shouldUseCache(req *http.Request) bool {
-	// TODO Add more logic like get params, ?nocache=true
-
-	if req.Method != "GET" && req.Method != "HEAD" {
-		// Only cache Get and head request
-		return false
+func NewHandler(Next httpserver.Handler) *Handler {
+	return &Handler{
+		Entries:  map[string][]*HTTPCacheEntry{},
+		URLLocks: NewURLLock(),
+		Next:     Next,
 	}
-
-	// Range responses still not supported
-	if req.Header.Get("accept-ranges") != "" {
-		return false
-	}
-
-	return true
 }
 
-func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
-	w.Header().Add("X-Cache-status", status)
-}
+/* Entries */
 
 func (handler *Handler) saveEntry(updatedEntry *HTTPCacheEntry) {
 	key := getKey(updatedEntry.Request)
+
 	handler.scheduleCleanEntry(updatedEntry)
 
 	for i, previousEntry := range handler.Entries[key] {
@@ -97,7 +86,7 @@ func (handler *Handler) getEntry(r *http.Request) (*HTTPCacheEntry, bool) {
 
 func (handler *Handler) scheduleCleanEntry(entry *HTTPCacheEntry) {
 	go func(entry *HTTPCacheEntry) {
-		time.Sleep(entry.Expiration().Sub(time.Now().UTC()))
+		time.Sleep(entry.expiration.Sub(time.Now().UTC()))
 		handler.cleanEntry(entry)
 	}(entry)
 }
@@ -119,16 +108,13 @@ func (handler *Handler) cleanEntry(entry *HTTPCacheEntry) {
 	}
 }
 
-func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
-	body, err := entry.Response.GetReader()
-	if err != nil {
-		fmt.Println(err)
-		return 500, err
-	}
-	if body != nil {
-		defer body.Close()
-	}
+/* Responses */
 
+func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
+	w.Header().Add("X-Cache-status", status)
+}
+
+func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
 	handler.addStatusHeaderIfConfigured(w, cacheStatus)
 	for k, values := range entry.Response.HeaderMap {
 		for _, v := range values {
@@ -137,11 +123,44 @@ func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, ca
 	}
 	w.WriteHeader(entry.Response.Code)
 
-	if body != nil {
-		io.Copy(w, body)
+	err := entry.WriteBodyTo(w)
+
+	return entry.Response.Code, err
+}
+
+/* Handler */
+
+func shouldUseCache(req *http.Request) bool {
+	// TODO Add more logic like get params, ?nocache=true
+
+	if req.Method != "GET" && req.Method != "HEAD" {
+		// Only cache Get and head request
+		return false
 	}
 
-	return entry.Response.Code, nil
+	// Range responses still not supported
+	if req.Header.Get("accept-ranges") != "" {
+		return false
+	}
+
+	return true
+}
+
+func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error) {
+	response := NewResponse()
+
+	var err error
+
+	go func(req *http.Request, response *Response) {
+		statusCode, upstreamError := handler.Next.ServeHTTP(response, req)
+		err = upstreamError
+		response.WriteHeader(statusCode) // If headers were not set this will replace them
+		response.WaitBody()
+		response.Close()
+	}(req, response)
+
+	response.WaitHeaders()
+	return NewHTTPCacheEntry(req, response, handler.Config), err
 }
 
 func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
@@ -158,7 +177,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	// First case: CACHE HIT
 	// The response exists in cache and is public
 	// It should be served as saved
-	if exists && previousEntry.IsPublic() {
+	if exists && previousEntry.isPublic {
 		lock.Unlock()
 		return handler.respond(w, previousEntry, cacheHit)
 	}
@@ -168,42 +187,45 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	// It should NOT be served from cache
 	// It should be fetched from upstream and check the new headers
 	// To check if the new response changes to public
-	if exists && !previousEntry.IsPublic() {
+	if exists && !previousEntry.isPublic {
 		lock.Unlock()
-		newResult := FetchUpstream(handler.Next, r, handler.Config)
-		if newResult.err != nil {
-			lock.Unlock()
-			fmt.Println(newResult.err)
-			return 500, newResult.err
+		entry, err := handler.fetchUpstream(r)
+		if err != nil {
+			return entry.Response.Code, err
 		}
-		newEntry := newResult.entry
-		handler.respond(w, newEntry, cacheSkip)
 
 		// Case when response was private but now is public
-		if newEntry.IsPublic() {
+		if entry.isPublic {
+			err := entry.setStorage()
+			if err != nil {
+				return 500, err
+			}
 			lock := handler.URLLocks.Adquire(getKey(r))
-			handler.saveEntry(newEntry)
+			handler.saveEntry(entry)
 			lock.Unlock()
 		}
 
-		return newEntry.Response.Code, nil
+		return handler.respond(w, entry, cacheSkip)
 	}
 
 	// Third case: CACHE MISS
 	// The response is not in cache
 	// It should be fetched from upstream and save it in cache
-	newResult := FetchUpstream(handler.Next, r, handler.Config)
-	if newResult.err != nil {
+	entry, err := handler.fetchUpstream(r)
+	if err != nil {
 		lock.Unlock()
-		fmt.Println(newResult.err)
-		return newResult.entry.Response.Code, newResult.err
+		return entry.Response.Code, err
 	}
-	newEntry := newResult.entry
 
-	handler.saveEntry(newEntry)
+	// Entry is always saved, even if it is not public
+	// This is to release the URL lock.
+	if entry.isPublic {
+		err := entry.setStorage()
+		if err != nil {
+			return 500, err
+		}
+	}
+	handler.saveEntry(entry)
 	lock.Unlock()
-
-	handler.respond(w, newEntry, cacheMiss)
-
-	return newEntry.Response.Code, nil
+	return handler.respond(w, entry, cacheMiss)
 }

@@ -11,86 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBufferStorage(t *testing.T) {
-	t.Run("should be able to read after write", func(t *testing.T) {
-		s, _ := NewBufferEntryStorage()
-		reader, _ := s.GetReader()
-
-		content := []byte("abcdef")
-		s.Write(content)
-
-		buf := make([]byte, 32*1024)
-		reader.Read(buf)
-
-		require.Equal(t, content, buf[:len(content)])
-	})
-
-	t.Run("reader should wait until content", func(t *testing.T) {
-		s, _ := NewBufferEntryStorage()
-		reader, _ := s.GetReader()
-
-		waitForWrite := make(chan struct{})
-		waitForRead := make(chan struct{})
-
-		content := []byte("abcdef")
-		buf := make([]byte, 32*1024)
-
-		go func() {
-			<-waitForWrite
-			s.Write(content)
-		}()
-
-		go func() {
-			reader.Read(buf)
-			waitForRead <- struct{}{}
-		}()
-
-		require.Equal(t, []byte(""), buf[:0])
-		waitForWrite <- struct{}{}
-		<-waitForRead
-		require.Equal(t, content, buf[:len(content)])
-	})
-
-	t.Run("should copy all content until subscription is closed", func(t *testing.T) {
-		storage, _ := NewBufferEntryStorage()
-		reader, _ := storage.GetReader()
-		result := bytes.NewBuffer(nil)
-
-		moreContent := make(chan struct{})
-		writerEnded := make(chan struct{})
-		readerEnded := make(chan struct{})
-
-		content := []byte("123")
-
-		go func() {
-			for range moreContent {
-				storage.Write(content)
-			}
-			storage.Close()
-			writerEnded <- struct{}{}
-		}()
-
-		go func() {
-			io.Copy(result, reader)
-			reader.Close()
-			readerEnded <- struct{}{}
-		}()
-
-		moreContent <- struct{}{}
-		moreContent <- struct{}{}
-		close(moreContent)
-
-		<-writerEnded
-		<-readerEnded
-
-		finalContent := []byte("123123")
-		require.Equal(t, finalContent, result.Bytes()[:len(finalContent)])
-	})
-}
-
 func TestFileStorage(t *testing.T) {
 	t.Run("should be abile to read after write", func(t *testing.T) {
-		s, err := NewFileEntryStorage()
+		s, err := NewFileStorage()
 		require.NoError(t, err)
 
 		reader, _ := s.GetReader()
@@ -105,7 +28,7 @@ func TestFileStorage(t *testing.T) {
 	})
 
 	t.Run("should create a file", func(t *testing.T) {
-		s, err := NewFileEntryStorage()
+		s, err := NewFileStorage()
 		require.NoError(t, err)
 
 		_, err = os.Stat(s.(*FileStorage).file.Name())
@@ -115,7 +38,7 @@ func TestFileStorage(t *testing.T) {
 	})
 
 	t.Run("should delete a file when is cleaned", func(t *testing.T) {
-		s, err := NewFileEntryStorage()
+		s, err := NewFileStorage()
 		require.NoError(t, err)
 
 		s.Close()
