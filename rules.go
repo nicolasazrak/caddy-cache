@@ -25,6 +25,9 @@ type HeaderCacheRule struct {
 	Value  []string
 }
 
+// Made for testing
+var now = time.Now
+
 /* This rules decide if the request must be cached and are added to handler config if are present in Caddyfile */
 
 func (rule *PathCacheRule) matches(req *http.Request, statusCode int, respHeaders http.Header) bool {
@@ -53,12 +56,12 @@ func getCacheableStatus(req *http.Request, response *Response, config *Config) (
 	isPublic := len(reasonsNotToCache) == 0
 
 	if !isPublic {
-		return false, time.Now().Add(config.LockTimeout)
+		return false, now().Add(config.LockTimeout)
 	}
 
 	varyHeader := response.HeaderMap.Get("Vary")
 	if varyHeader == "*" {
-		return false, time.Now().Add(config.LockTimeout)
+		return false, now().Add(config.LockTimeout)
 	}
 
 	// Check if any rule matches
@@ -66,16 +69,16 @@ func getCacheableStatus(req *http.Request, response *Response, config *Config) (
 		if rule.matches(req, response.Code, response.Header()) {
 
 			// If any rule matches but the response has no explicit expiration
-			if expiration.Before(time.Now()) {
+			if expiration.Before(now()) {
 				// Use the default max age
-				expiration = expiration.Add(config.DefaultMaxAge)
+				expiration = now().Add(config.DefaultMaxAge)
 			}
 			return true, expiration
 		}
 	}
 
 	// isPublic only if has an explicit expiration
-	return expiration.After(time.Now()), expiration
+	return expiration.After(now()), expiration
 }
 
 func matchesVary(currentRequest *http.Request, previousResponse *Response) bool {

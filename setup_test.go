@@ -70,10 +70,15 @@ func TestParsingConfig(t *testing.T) {
 			DefaultMaxAge: time.Duration(1) * time.Hour,
 			CacheRules:    []CacheRule{},
 		}},
+		{"cache {\n match_header aheader \n}", true, Config{}},          // match_header without value
 		{"cache {\n lock_timeout aheader \n}", true, Config{}},          // lock_timeout with invalid duration
+		{"cache {\n lock_timeout \n}", true, Config{}},                  // lock_timeout has no arguments
+		{"cache {\n default_max_age somevalue \n}", true, Config{}},     // lock_timeout has invalid duration
+		{"cache {\n default_max_age \n}", true, Config{}},               // default_max_age has no arguments
 		{"cache {\n status_header aheader another \n}", true, Config{}}, // status_header with invalid number of parameters
 		{"cache {\n match_path / ea \n}", true, Config{}},               // Invalid number of parameters in match
 		{"cache {\n invalid / ea \n}", true, Config{}},                  // Invalid directive
+		{"cache {\n path \n}", true, Config{}},                          // Path without arguments
 	}
 
 	for i, test := range tests {

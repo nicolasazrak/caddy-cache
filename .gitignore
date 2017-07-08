@@ -26,3 +26,5 @@ _testmain.go
 .idea
 v1
 example
+coverage.out
+.vscode

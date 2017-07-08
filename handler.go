@@ -51,6 +51,14 @@ func NewHandler(Next httpserver.Handler, config *Config) *Handler {
 
 /* Responses */
 
+func copyHeaders(from http.Header, to http.Header) {
+	for k, values := range from {
+		for _, v := range values {
+			to.Add(k, v)
+		}
+	}
+}
+
 func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
 	if handler.Config.StatusHeader != "" {
 		w.Header().Add(handler.Config.StatusHeader, status)
@@ -60,12 +68,7 @@ func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, statu
 func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
 	handler.addStatusHeaderIfConfigured(w, cacheStatus)
 
-	// Send entry headers
-	for k, values := range entry.Response.HeaderMap {
-		for _, v := range values {
-			w.Header().Add(k, v)
-		}
-	}
+	copyHeaders(entry.Response.HeaderMap, w.Header())
 	w.WriteHeader(entry.Response.Code)
 
 	err := entry.WriteBodyTo(w)
