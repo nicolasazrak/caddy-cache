@@ -78,7 +78,11 @@ func getCacheableStatus(req *http.Request, response *Response, config *Config) (
 	}
 
 	// isPublic only if has an explicit expiration
-	return expiration.After(now()), expiration
+	if expiration.Before(now()) {
+		return false, now().Add(config.LockTimeout)
+	}
+
+	return true, expiration
 }
 
 func matchesVary(currentRequest *http.Request, previousResponse *Response) bool {

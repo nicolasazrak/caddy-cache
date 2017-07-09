@@ -78,7 +78,7 @@ func TestCacheableStatus(t *testing.T) {
 		isPublic, expiration := getCacheableStatus(request, response, c)
 
 		require.False(t, isPublic)
-		require.Equal(t, time.Time{}, expiration)
+		require.Equal(t, testTime.Add(c.LockTimeout), expiration)
 	})
 
 	t.Run("should return public = true if it has explicit expiration", func(t *testing.T) {
