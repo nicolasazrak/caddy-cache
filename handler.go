@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/mholt/caddy/caddyhttp/httpserver"
@@ -102,7 +103,12 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 
 	// Do the upstream fetching in background
 	go func(req *http.Request, response *Response) {
-		statusCode, upstreamError := handler.Next.ServeHTTP(response, req)
+		// Create a new context to avoid terminating the Next.ServeHTTP when the original
+		// request is closed. Otherwise if the original request is cancelled the other requests
+		// will see a bad response that has the same contents the first request has
+		updatedReq := req.WithContext(context.Background())
+
+		statusCode, upstreamError := handler.Next.ServeHTTP(response, updatedReq)
 		err = upstreamError
 		response.WriteHeader(statusCode) // If headers were not set this will replace them
 
