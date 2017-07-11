@@ -4,12 +4,14 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+
+	"github.com/nicolasazrak/caddy-cache/storage"
 )
 
 type Response struct {
 	Code      int         // the HTTP response code from WriteHeader
 	HeaderMap http.Header // the HTTP response headers
-	body      ResponseStorage
+	body      storage.ResponseStorage
 
 	wroteHeader   bool
 	firstByteSent bool
@@ -112,7 +114,7 @@ func (rw *Response) WaitHeaders() {
 	rw.headersLock.RLock()
 }
 
-func (rw *Response) SetBody(body ResponseStorage) {
+func (rw *Response) SetBody(body storage.ResponseStorage) {
 	rw.body = body
 	rw.bodyLock.Unlock()
 }
