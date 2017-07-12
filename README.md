@@ -65,7 +65,7 @@ Benchmark files are in `benchmark` folder. Tests were run on my Lenovo G480 with
 
     |               | Req/s   | Throughput  | 99th Latency |
     |---------------|---------|-------------|--------------|
-    | proxy + cache | 4295.73 |   2.49 GB/s | 563.62 ms    |
+    | proxy + cache | 4548.03 |   2.64 GB/s | 561.39 ms    |
     | proxy         | 1043.61 | 619.65 MB/s |   1.00 s     |
     | root          | 3668.14 |   2.13 GB/s | 612.39 ms    |
 
@@ -75,7 +75,7 @@ Benchmark files are in `benchmark` folder. Tests were run on my Lenovo G480 with
 
     |               | Req/s   | Throughput  | 99th Latency |
     |---------------|---------|-------------|--------------|
-    | proxy + cache | 1220.69 |   3.07 GB/s | 1.69 s       |
+    | proxy + cache | 1199.81 |   3.01 GB/s | 1.65 s       |
     | proxy         |  473.14 |   1.20 GB/s | 1.81 s       |
     | root          | 1064.44 |   2.66 GB/s | 1.71 s       |
 

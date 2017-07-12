@@ -3,8 +3,6 @@ package cache
 import (
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/nicolasazrak/caddy-cache/storage"
@@ -68,31 +66,12 @@ func (e *HTTPCacheEntry) WriteBodyTo(w http.ResponseWriter) error {
 }
 
 func (e *HTTPCacheEntry) setStorage(config *Config) error {
-	cl := parseContentLength(e.Response.Header().Get("Content-Length"))
-
-	storage, err := storage.Build(config.Path, cl)
+	storage, err := storage.NewFileStorage(config.Path)
 
 	// Set the storage even if it is nil to continue and stop the upstream request
 	e.Response.SetBody(storage)
 
 	return err
-}
-
-// parseContentLength trims whitespace from s and returns -1 if no value
-// is set, or the value if it's >= 0.
-//
-// This a modified version of same function found in net/http/transfer.go. This
-// one just ignores an invalid header.
-func parseContentLength(cl string) int64 {
-	cl = strings.TrimSpace(cl)
-	if cl == "" {
-		return -1
-	}
-	n, err := strconv.ParseInt(cl, 10, 64)
-	if err != nil {
-		return -1
-	}
-	return n
 }
 
 // Fresh returns if the entry is still fresh
