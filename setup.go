@@ -25,7 +25,7 @@ type Config struct {
 }
 
 func init() {
-	httpserver.RegisterDevDirective("cache", "root")
+	// httpserver.RegisterDevDirective("cache", "root")
 	caddy.RegisterPlugin("cache", caddy.Plugin{
 		ServerType: "http",
 		Action:     Setup,
