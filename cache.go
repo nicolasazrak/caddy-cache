@@ -43,7 +43,7 @@ func (cache *HTTPCache) Get(request *http.Request) (*HTTPCacheEntry, bool) {
 	}
 
 	for _, entry := range previousEntries {
-		if entry.Fresh() && matchesVary(request, entry.Response) {
+		if entry.Fresh() && matchesVary(request, entry) {
 			return entry, true
 		}
 	}
@@ -61,7 +61,7 @@ func (cache *HTTPCache) Put(request *http.Request, entry *HTTPCacheEntry) {
 	cache.scheduleCleanEntry(entry)
 
 	for i, previousEntry := range cache.entries[bucket][key] {
-		if matchesVary(entry.Request, previousEntry.Response) {
+		if matchesVary(entry.Request, previousEntry) {
 			go previousEntry.Clean()
 			cache.entries[bucket][key][i] = entry
 			return

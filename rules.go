@@ -2,7 +2,6 @@ package cache
 
 import (
 	"net/http"
-	"reflect"
 	"strings"
 	"time"
 
@@ -85,12 +84,12 @@ func getCacheableStatus(req *http.Request, response *Response, config *Config) (
 	return true, expiration
 }
 
-func matchesVary(currentRequest *http.Request, previousResponse *Response) bool {
-	vary := previousResponse.HeaderMap.Get("Vary")
+func matchesVary(currentRequest *http.Request, entry *HTTPCacheEntry) bool {
+	vary := entry.Response.HeaderMap.Get("Vary")
 
 	for _, searchedHeader := range strings.Split(vary, ",") {
 		searchedHeader = strings.TrimSpace(searchedHeader)
-		if !reflect.DeepEqual(currentRequest.Header[searchedHeader], previousResponse.HeaderMap[searchedHeader]) {
+		if currentRequest.Header.Get(searchedHeader) != entry.Request.Header.Get(searchedHeader) {
 			return false
 		}
 	}
