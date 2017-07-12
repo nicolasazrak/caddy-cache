@@ -1,27 +1,30 @@
 caddy.test {
         tls off
-        gzip
-        proxy / caddy.test4:2015
-        cache {
-                status_header X-Cache-Status
-                storage mmap /tmp/caddy-cache
-        }
+        proxy / caddy.test3:2015
+        cache
 }
 
 caddy.test2 {
         tls off
-        gzip
-        proxy / caddy.test4:2015
+        proxy / caddy.test3:2015
 }
 
 caddy.test3 {
         tls off
-        gzip
         header / Cache-control "public"
-        root "/home/nico/Imágenes"
+        root "/tmp/caddy-benchmark"
 }
 
 caddy.test4 {
         tls off
-        root "/home/nico/Imágenes"
+        gzip
+        proxy / caddy.test3:2015
+        cache
+}
+
+caddy.test5 {
+        tls off
+        gzip
+        header / Cache-control "public"
+        proxy / caddy.test3:2015
 }

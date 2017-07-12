@@ -10,16 +10,12 @@ This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 
 To use it you need to compile your own version of caddy with this plugin. First fetch the code
 
-- `go get -u github.com/mholt/caddy`
-- `go get -u github.com/nicolasazrak/caddy-cache`
-- `cd $GOPATH/src/github.com/mholt/caddy`
-- `go get ./... # Fetch dependencies recursively`
-- `cd $GOPATH/src/github.com/nicolasazrak/caddy-cache`
-- `go get ./...`
+- `go get -u github.com/mholt/caddy/...`
+- `go get -u github.com/nicolasazrak/caddy-cache/...`
 
 Then update the file in `$GOPATH/src/github.com/mholt/caddy/caddy/caddymain/run.go` and import `_ "github.com/nicolasazrak/caddy-cache"`.
 
-And Then build the caddy with:
+And finally build caddy with:
 
 - `cd $GOPATH/src/github.com/mholt/caddy/caddy`
 - `./build.bash`
@@ -41,24 +37,21 @@ This will store in cache responses that specifically have a `Cache-control`, `Ex
 
 For more advanced usages you can use the following parameters: 
 
-- `default_max_age:` Sets the default max age for responses without a `Cache-control` or `Expires` header. (Default: 60 seconds)
-- `status_header:` Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit
-- `match:` Sets rules to make responses cacheable, if any matches and the response is cacheable by https://tools.ietf.org/html/rfc7234 then it will be stored. Supported options are:
-    - `path`: check if the request starts with this path
-    - `header`: checks if the response contains a header with one of the specified values
-- `storage`: There are two storage engines:
-    - `̀mmap` It stores the files contents in a file in /tmp You can specify where to store the files. Keep in mind that it is not persistent. Every time the server is restarted the files will be created again.
-    - `memory` It stores the files contents in a byte array in memory
+- `match_path`: Paths to cache. For example `match_path /assets` will cache all successful responses for requests that start with /assets and are not marked as private.
+- `match_header`: Matches responses that have the selected headers. For example `match_header Content-Type image/png image/jpg` will cache all successful responses that with content type `image/png` OR `image/jpg`. Note that if more than one is specified, anyone that matches will make the response cacheable. 
+- `path`: Path where to store the cached responses. By default it will use the operating system temp folder.
+- `default_max_age`: Max-age to use for matched responses that do not have an explicit expiration. (Default: 5 minutes)
+- `status_header`: Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit. (Default: `X-Cache-Status`)
 
 ```
 caddy.test {
     proxy / yourserver:5000
     cache {
-        match path /assets
-        match header Content-Type image/jpg image/png
-        default_max_age 10
+        match_path /assets
+        match_header Content-Type image/jpg image/png
         status_header X-Cache-Status
-        storage mmap /tmp/caddy-cache
+        default_max_age 15m
+        path /tmp/caddy-cache
     }
 }
 ```
@@ -68,29 +61,34 @@ caddy.test {
 
 Benchmark files are in `benchmark` folder. Tests were run on my Lenovo G480 with Intel i3 3220 and 8gb of ram.
 
-Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
+- First test: Download `sherlock.txt` (608 Kb) file from the root (caddy.test3), a proxy to root server (caddy.test2) and a proxy to root server with cache (caddy.test).
 
+    `wrk -c 400 -d 30s --latency -t 4 http://caddy.test:2015/sherlock.txt`
 
-| File Size             ||                     41kb               ||                 |    608kb                ||                |   2.6M                   ||   
-| ---                   |       :----:   |    :---:    |  :---:    |         ----    |    ----      | ----      |  :----:        |   ---        |   ---      |
-|                       | **Total time** | **Average** | **99%th** |  **Total time** |  **Average** | **99%th** | **Total time** |  **Average** | **99%th**  |
-| Proxy to Root + cache | 0.567 seconds  |  7.091 ms   |  17ms     | 0.898 seconds   | 11.224 ms    |  31 ms    |  2.525 seconds |  31.560 ms   |  51 ms     |
-| Proxy to Root         | 2.683 seconds  | 33.541 ms   |  58ms     | 6.493 seconds   | 81.157 ms    | 163 ms    | 22.095 seconds | 276.187 ms   | 826 ms     |
-| Root                  | 0.833 seconds  | 10.414 ms   |  23ms     | 2.546 seconds   | 31.827 ms    |  78 ms    |  8.695 seconds | 108.685 ms   | 258 ms     |
+    |               | Req/s   | Throughput  | 99th Latency |
+    |---------------|---------|-------------|--------------|
+    | proxy + cache | 4295.73 |   2.49 GB/s | 563.62 ms    |
+    | proxy         | 1043.61 | 619.65 MB/s |   1.00 s     |
+    | root          | 3668.14 |   2.13 GB/s | 612.39 ms    |
 
-Using Gzip: 
+- Second test: Download `montecristo.txt` (2,6 Mb) file from the root (caddy.test3), a proxy to root server (caddy.test2) and a proxy to root server with cache (caddy.test).
 
-`ab -n 100 -c 5 -H "Accept-Encoding: gzip,deflate" http://caddy.test:2015/file.txt`
+    `wrk -c 400 -d 30s --latency -t 4 http://caddy.test:2015/montecristo.txt`
 
-| File Size             ||                     41kb               ||                 |    608kb                 ||                 |   2.6M                   ||
-| ---                   |       :----:   |    :---:    |  :---:    |         ----    |    ----       | ----      |   :----:        |   ---        |   ---      |
-|                       | **Total time** | **Average** | **99%th** |  **Total time** |  **Average**  | **99%th** |  **Total time** |  **Average** | **99%th**  |
-| Proxy to Root + cache | 0.035 seconds  |   1.741 ms  |   5 ms    | 0.061 seconds   |    3.047 ms   |   7 ms    |   0.123 seconds |   6.154 ms   | 12 ms      |
-| Proxy to Root         | 2.914 seconds  | 145.689 ms  | 285 ms    | 73.09 seconds   | 3654.508 ms   | 5709 ms   |  314.44 seconds | 16303.978 ms | 22725 ms   |
-| Root                  | 2.348 seconds  | 117.406 ms  | 172 ms    | 77.59 seconds   | 3879.899 ms   | 4813 ms   |  308.66 seconds | 15433.155 ms | 20183 ms   |
+    |               | Req/s   | Throughput  | 99th Latency |
+    |---------------|---------|-------------|--------------|
+    | proxy + cache | 1220.69 |   3.07 GB/s | 1.69 s       |
+    | proxy         |  473.14 |   1.20 GB/s | 1.81 s       |
+    | root          | 1064.44 |   2.66 GB/s | 1.71 s       |
 
+- Third test: Download `pg31674.txt` (41 Kb) a root server (caddy.test5) with gzip and a proxy to root server with cache (caddy.test4).
 
+    `wrk -c 50 -d 30s --latency -H 'Accept-Encoding: gzip' -t 4 http://caddy.test4:2015/pg31674.txt`
 
+    |               | Req/s    | Throughput  | 99th Latency |
+    |---------------|----------|-------------|--------------|
+    | proxy + cache | 16547.84 | 242.05 MB/s |  22.48ms     |
+    | root          | 792.08   |  11.60 MB/s | 109.98ms     |
 
 ## Todo list
 

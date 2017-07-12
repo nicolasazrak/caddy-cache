@@ -1,35 +1,34 @@
 package cache
 
 import (
-	"fmt"
-	"github.com/mholt/caddy/caddyhttp/httpserver"
+	"context"
 	"net/http"
-	"reflect"
-	"strings"
-	"time"
+
+	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
 
-type CacheHandler struct {
+// Handler is the main cache middleware
+type Handler struct {
+	// Handler configuration
 	Config *Config
-	Cache  *Cache
-	Next   httpserver.Handler
+
+	// Cache is where entries are stored
+	Cache *HTTPCache
+
+	// Next handler
+	Next httpserver.Handler
+
+	// Handles locking for different URLs
+	URLLocks *URLLock
 }
 
-func respond(response *Response, w http.ResponseWriter) {
-	for k, values := range response.HeaderMap {
-		for _, v := range values {
-			w.Header().Add(k, v)
-		}
-	}
-	w.WriteHeader(response.Code)
-	if response.Body != nil {
-		w.Write(response.Body.Bytes())
-	}
-}
+const (
+	cacheHit    = "hit"
+	cacheMiss   = "miss"
+	cacheSkip   = "skip"
+	cacheBypass = "bypass"
+)
 
-/**
- * Builds the cache key
- */
 func getKey(r *http.Request) string {
 	key := r.Method + " " + r.Host + r.URL.Path
 
@@ -41,152 +40,159 @@ func getKey(r *http.Request) string {
 	return key
 }
 
-/**
- * Returns a function that given a previous response returns if it matches the current response
- */
-func matchesRequest(r *http.Request) func(*HttpCacheEntry) bool {
-	return func(entry *HttpCacheEntry) bool {
-		// TODO match getKeys()
-		// It is always called with same key values
-		// But checking it is better
-		vary, hasVary := entry.Response.HeaderMap["Vary"]
-		if !hasVary {
-			return true
-		}
-
-		for _, searchedHeader := range strings.Split(vary[0], ",") {
-			searchedHeader = strings.TrimSpace(searchedHeader)
-			if !reflect.DeepEqual(entry.Request.HeaderMap[searchedHeader], r.Header[searchedHeader]) {
-				return false
-			}
-		}
-		return true
+// NewHandler creates a new Handler using Next middleware
+func NewHandler(Next httpserver.Handler, config *Config) *Handler {
+	return &Handler{
+		Config:   config,
+		Cache:    NewHTTPCache(),
+		URLLocks: NewURLLock(),
+		Next:     Next,
 	}
 }
 
-func (h *CacheHandler) AddStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
-	if h.Config.StatusHeader != "" {
-		w.Header().Set(h.Config.StatusHeader, status)
+/* Responses */
+
+func copyHeaders(from http.Header, to http.Header) {
+	for k, values := range from {
+		for _, v := range values {
+			to.Add(k, v)
+		}
 	}
 }
 
-/**
-* This prevents storing status header in cache.
-* Otherwise the status cache will be sent twice for cached results
- */
-func (h *CacheHandler) RemoveStatusHeaderIfConfigured(headers http.Header) http.Header {
-	if h.Config.StatusHeader != "" {
-		delete(headers, h.Config.StatusHeader)
+func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
+	if handler.Config.StatusHeader != "" {
+		w.Header().Add(handler.Config.StatusHeader, status)
 	}
-	return headers
 }
 
-func (handler *CacheHandler) HandleCachedResponse(w http.ResponseWriter, r *http.Request, previous *HttpCacheEntry) int {
-	handler.AddStatusHeaderIfConfigured(w, "hit")
-	respond(previous.Response, w)
-	return previous.Response.Code
+func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
+	handler.addStatusHeaderIfConfigured(w, cacheStatus)
+
+	copyHeaders(entry.Response.HeaderMap, w.Header())
+	w.WriteHeader(entry.Response.Code)
+
+	err := entry.WriteBodyTo(w)
+
+	return entry.Response.Code, err
 }
 
-func (handler *CacheHandler) HandleNonCachedResponse(w http.ResponseWriter, r *http.Request) (*HttpCacheEntry, error) {
-	key := getKey(r)
-	rec := NewStreamedRecorder(w)
+/* Handler */
 
-	// Build the cache entry
-	entry := &HttpCacheEntry{
-		isPublic:   false, // Default values for private responses
-		Expiration: time.Now().UTC().Add(time.Duration(1) * time.Hour),
-		Request:    &Request{HeaderMap: r.Header},
-		Response:   nil,
+func shouldUseCache(req *http.Request) bool {
+	// TODO Add more logic like get params, ?nocache=true
+
+	if req.Method != "GET" && req.Method != "HEAD" {
+		// Only cache Get and head request
+		return false
 	}
 
-	// Create a callback on response recorder
-	// So as soon as the first byte is sent, check the headers
-	// If the response is cacheable, a new entry will be created
-	// And the response will be saved. In case the mmap storage is
-	// being used, the response will be saved to a file
-	rec.SetFirstWriteListener(func(Code int, Header http.Header) error {
-		isCacheable, expirationTime, err := getCacheableStatus(r, Code, Header, handler.Config)
-		if err != nil {
-			// getCacheableStatus may return an error when it fails to parse
-			// Some header, but it is not be a problem here.
-			// Just ignore it and don't cache that response.
-			return nil
-		}
-
-		// If it's not cacheable do nothing
-		if !isCacheable {
-			return nil
-		}
-
-		// Update the expiration value
-		entry.Expiration = expirationTime
-		entry.isPublic = true
-
-		// Create the new entry, potentially creating a new file in disk
-		writer, err := handler.Cache.NewContent(key)
-		if err != nil {
-			fmt.Println(err)
-			return err
-		}
-
-		// Update the body writer, next Writes will go to the created writer
-		rec.UpdateBodyWriter(writer)
-		return nil
-	})
-
-	// Send the status header and server the request from upstream
-	handler.AddStatusHeaderIfConfigured(w, "miss")
-	_, err := handler.Next.ServeHTTP(rec, r)
-	if err != nil {
-		return nil, err
+	// Range responses still not supported
+	if req.Header.Get("accept-ranges") != "" {
+		return false
 	}
 
-	result, Body := rec.Result()
-	entry.Response = &Response{
-		HeaderMap: handler.RemoveStatusHeaderIfConfigured(result.Header),
-		Code:      result.StatusCode,
-	}
-
-	// If the body was recorded, close the body and update the entry
-	if Body != nil {
-		Body.Close()
-		entry.Response.Body = Body
-	}
-
-	// This is an special case because if it is a head request it will never enter the WriteListener
-	if r.Method == "HEAD" {
-		isCacheable, expirationTime, err := getCacheableStatus(r, result.StatusCode, result.Header, handler.Config)
-		if err != nil {
-			return nil, err
-		}
-		if isCacheable {
-			entry.Expiration = expirationTime
-			entry.isPublic = true
-		}
-	}
-
-	return entry, nil
+	return true
 }
 
-func (handler CacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
+func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error) {
+	// Create a new empty response
+	response := NewResponse()
+
+	var err error
+
+	// Do the upstream fetching in background
+	go func(req *http.Request, response *Response) {
+		// Create a new context to avoid terminating the Next.ServeHTTP when the original
+		// request is closed. Otherwise if the original request is cancelled the other requests
+		// will see a bad response that has the same contents the first request has
+		updatedReq := req.WithContext(context.Background())
+
+		statusCode, upstreamError := handler.Next.ServeHTTP(response, updatedReq)
+		err = upstreamError
+		response.WriteHeader(statusCode) // If headers were not set this will replace them
+
+		// Wait the response body to be set.
+		// If it is private it will be the original http.ResponseWriter
+		// It is required to wait the body to prevent closing the response
+		// before the body was set. If that happens the body will
+		// stay locked waiting the response to be closed
+		response.WaitBody()
+		response.Close()
+	}(req, response)
+
+	// Wait headers to de sent
+	response.WaitHeaders()
+
+	// Create a new CacheEntry
+	return NewHTTPCacheEntry(getKey(req), req, response, handler.Config), err
+}
+
+func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	if !shouldUseCache(r) {
-		handler.AddStatusHeaderIfConfigured(w, "skip")
+		handler.addStatusHeaderIfConfigured(w, cacheBypass)
 		return handler.Next.ServeHTTP(w, r)
 	}
 
-	returnedStatusCode := http.StatusInternalServerError // If this is not updated means there was an error
-	err := handler.Cache.GetOrSet(getKey(r), matchesRequest(r), func(previous *HttpCacheEntry) (*HttpCacheEntry, error) {
-		if previous == nil || !previous.isPublic {
-			newEntry, err := handler.HandleNonCachedResponse(w, r)
-			if err != nil {
-				return nil, err
-			}
-			returnedStatusCode = newEntry.Response.Code
-			return newEntry, nil
+	lock := handler.URLLocks.Adquire(getKey(r))
+
+	// Lookup correct entry
+	previousEntry, exists := handler.Cache.Get(r)
+
+	// First case: CACHE HIT
+	// The response exists in cache and is public
+	// It should be served as saved
+	if exists && previousEntry.isPublic {
+		lock.Unlock()
+		return handler.respond(w, previousEntry, cacheHit)
+	}
+
+	// Second case: CACHE SKIP
+	// The response is in cache but it is not public
+	// It should NOT be served from cache
+	// It should be fetched from upstream and check the new headers
+	// To check if the new response changes to public
+	if exists && !previousEntry.isPublic {
+		lock.Unlock()
+		entry, err := handler.fetchUpstream(r)
+		if err != nil {
+			return entry.Response.Code, err
 		}
 
-		returnedStatusCode = handler.HandleCachedResponse(w, r, previous)
-		return nil, nil
-	})
-	return returnedStatusCode, err
+		// Case when response was private but now is public
+		if entry.isPublic {
+			err := entry.setStorage(handler.Config)
+			if err != nil {
+				return 500, err
+			}
+
+			handler.Cache.Put(r, entry)
+			return handler.respond(w, entry, cacheMiss)
+		}
+
+		return handler.respond(w, entry, cacheSkip)
+	}
+
+	// Third case: CACHE MISS
+	// The response is not in cache
+	// It should be fetched from upstream and save it in cache
+	entry, err := handler.fetchUpstream(r)
+	if err != nil {
+		lock.Unlock()
+		return entry.Response.Code, err
+	}
+
+	// Entry is always saved, even if it is not public
+	// This is to release the URL lock.
+	if entry.isPublic {
+		err := entry.setStorage(handler.Config)
+		if err != nil {
+			lock.Unlock()
+			return 500, err
+		}
+	}
+
+	handler.Cache.Put(r, entry)
+	lock.Unlock()
+	return handler.respond(w, entry, cacheMiss)
 }

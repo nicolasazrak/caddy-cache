@@ -24,3 +24,7 @@ _testmain.go
 *.prof
 
 .idea
+v1
+example
+coverage.out
+.vscode

@@ -1,32 +1,39 @@
 package cache
 
 import (
-	"github.com/pquerna/cachecontrol/cacheobject"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/pquerna/cachecontrol/cacheobject"
 )
 
+// CacheRule determines if a request should be cached
 type CacheRule interface {
-	matches(*http.Request, int, *http.Header) bool
+	matches(*http.Request, int, http.Header) bool
 }
 
+// PathCacheRule matches if the request starts with given Path
 type PathCacheRule struct {
 	Path string
 }
 
+// HeaderCacheRule matches if given Header matches any of the values
 type HeaderCacheRule struct {
 	Header string
 	Value  []string
 }
 
+// Made for testing
+var now = time.Now
+
 /* This rules decide if the request must be cached and are added to handler config if are present in Caddyfile */
 
-func (rule *PathCacheRule) matches(req *http.Request, statusCode int, respHeaders *http.Header) bool {
+func (rule *PathCacheRule) matches(req *http.Request, statusCode int, respHeaders http.Header) bool {
 	return strings.HasPrefix(req.URL.Path, rule.Path)
 }
 
-func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHeaders *http.Header) bool {
+func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHeaders http.Header) bool {
 	headerValue := respHeaders.Get(rule.Header)
 	for _, expectedValue := range rule.Value {
 		if expectedValue == headerValue {
@@ -36,56 +43,56 @@ func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHead
 	return false
 }
 
-func shouldUseCache(req *http.Request) bool {
-	// TODO Add more logic like get params, ?nocache=true
+func getCacheableStatus(req *http.Request, response *Response, config *Config) (bool, time.Time) {
+	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, response.Code, response.HeaderMap, false)
 
-	if req.Method != "GET" && req.Method != "HEAD" {
-		// Only cache Get and head request
-		return false
-	}
-
-	// Range responses still not supported
-	if req.Header.Get("accept-ranges") != "" {
-		return false
-	}
-
-	return true
-}
-
-func getCacheableStatus(req *http.Request, statusCode int, respHeaders http.Header, config *Config) (bool, time.Time, error) {
-	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, statusCode, respHeaders, false)
-
+	// err means there was an error parsing headers
+	// Just ignore them and make response not cacheable
 	if err != nil {
-		return false, time.Now(), err
+		return false, time.Time{}
 	}
 
-	canBeStored := len(reasonsNotToCache) == 0
+	isPublic := len(reasonsNotToCache) == 0
 
-	if !canBeStored {
-		return false, time.Now(), nil
+	if !isPublic {
+		return false, now().Add(config.LockTimeout)
 	}
 
-	varyHeaders, ok := respHeaders["Vary"]
-	if ok && varyHeaders[0] == "*" {
-		return false, time.Now(), nil
+	varyHeader := response.HeaderMap.Get("Vary")
+	if varyHeader == "*" {
+		return false, now().Add(config.LockTimeout)
 	}
 
-	// Sometimes the returned date is 31 Dec 1969
-	// So an expiration is given if it is after now
-	hasExplicitExpiration := expiration.After(time.Now().UTC())
-
-	if !hasExplicitExpiration {
-		// If expiration is not specified use default MaxAge
-		expiration = time.Now().UTC().Add(config.DefaultMaxAge)
-	}
-
-	anyCacheRulesMatches := false
+	// Check if any rule matches
 	for _, rule := range config.CacheRules {
-		if rule.matches(req, statusCode, &respHeaders) {
-			anyCacheRulesMatches = true
-			break
+		if rule.matches(req, response.Code, response.Header()) {
+
+			// If any rule matches but the response has no explicit expiration
+			if expiration.Before(now()) {
+				// Use the default max age
+				expiration = now().Add(config.DefaultMaxAge)
+			}
+			return true, expiration
 		}
 	}
 
-	return anyCacheRulesMatches || hasExplicitExpiration, expiration, nil
+	// isPublic only if has an explicit expiration
+	if expiration.Before(now()) {
+		return false, now().Add(config.LockTimeout)
+	}
+
+	return true, expiration
+}
+
+func matchesVary(currentRequest *http.Request, entry *HTTPCacheEntry) bool {
+	vary := entry.Response.HeaderMap.Get("Vary")
+
+	for _, searchedHeader := range strings.Split(vary, ",") {
+		searchedHeader = strings.TrimSpace(searchedHeader)
+		if currentRequest.Header.Get(searchedHeader) != entry.Request.Header.Get(searchedHeader) {
+			return false
+		}
+	}
+
+	return true
 }
