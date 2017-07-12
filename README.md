@@ -61,29 +61,34 @@ caddy.test {
 
 Benchmark files are in `benchmark` folder. Tests were run on my Lenovo G480 with Intel i3 3220 and 8gb of ram.
 
-Test were executed with: `ab -n 2000 -c 25 http://caddy.test:2015/file.txt`
+- First test: Download `sherlock.txt` (608 Kb) file from the root (caddy.test3), a proxy to root server (caddy.test2) and a proxy to root server with cache (caddy.test).
 
+    `wrk -c 400 -d 30s --latency -t 4 http://caddy.test:2015/sherlock.txt`
 
-| File Size             ||                     41kb               ||                 |    608kb                ||                |   2.6M                   ||   
-| ---                   |       :----:   |    :---:    |  :---:    |         ----    |    ----      | ----      |  :----:        |   ---        |   ---      |
-|                       | **Total time** | **Average** | **99%th** |  **Total time** |  **Average** | **99%th** | **Total time** |  **Average** | **99%th**  |
-| Proxy to Root + cache | 0.567 seconds  |  7.091 ms   |  17ms     | 0.898 seconds   | 11.224 ms    |  31 ms    |  2.525 seconds |  31.560 ms   |  51 ms     |
-| Proxy to Root         | 2.683 seconds  | 33.541 ms   |  58ms     | 6.493 seconds   | 81.157 ms    | 163 ms    | 22.095 seconds | 276.187 ms   | 826 ms     |
-| Root                  | 0.833 seconds  | 10.414 ms   |  23ms     | 2.546 seconds   | 31.827 ms    |  78 ms    |  8.695 seconds | 108.685 ms   | 258 ms     |
+    |               | Req/s   | Throughput  | 99th Latency |
+    |---------------|---------|-------------|--------------|
+    | proxy + cache | 4295.73 |   2.49 GB/s | 563.62 ms    |
+    | proxy         | 1043.61 | 619.65 MB/s |   1.00 s     |
+    | root          | 3668.14 |   2.13 GB/s | 612.39 ms    |
 
-Using Gzip: 
+- Second test: Download `montecristo.txt` (2,6 Mb) file from the root (caddy.test3), a proxy to root server (caddy.test2) and a proxy to root server with cache (caddy.test).
 
-`ab -n 100 -c 5 -H "Accept-Encoding: gzip,deflate" http://caddy.test:2015/file.txt`
+    `wrk -c 400 -d 30s --latency -t 4 http://caddy.test:2015/montecristo.txt`
 
-| File Size             ||                     41kb               ||                 |    608kb                 ||                 |   2.6M                   ||
-| ---                   |       :----:   |    :---:    |  :---:    |         ----    |    ----       | ----      |   :----:        |   ---        |   ---      |
-|                       | **Total time** | **Average** | **99%th** |  **Total time** |  **Average**  | **99%th** |  **Total time** |  **Average** | **99%th**  |
-| Proxy to Root + cache | 0.035 seconds  |   1.741 ms  |   5 ms    | 0.061 seconds   |    3.047 ms   |   7 ms    |   0.123 seconds |   6.154 ms   | 12 ms      |
-| Proxy to Root         | 2.914 seconds  | 145.689 ms  | 285 ms    | 73.09 seconds   | 3654.508 ms   | 5709 ms   |  314.44 seconds | 16303.978 ms | 22725 ms   |
-| Root                  | 2.348 seconds  | 117.406 ms  | 172 ms    | 77.59 seconds   | 3879.899 ms   | 4813 ms   |  308.66 seconds | 15433.155 ms | 20183 ms   |
+    |               | Req/s   | Throughput  | 99th Latency |
+    |---------------|---------|-------------|--------------|
+    | proxy + cache | 1220.69 |   3.07 GB/s | 1.69 s       |
+    | proxy         |  473.14 |   1.20 GB/s | 1.81 s       |
+    | root          | 1064.44 |   2.66 GB/s | 1.71 s       |
 
+- Third test: Download `pg31674.txt` (41 Kb) a root server (caddy.test5) with gzip and a proxy to root server with cache (caddy.test4).
 
+    `wrk -c 50 -d 30s --latency -H 'Accept-Encoding: gzip' -t 4 http://caddy.test4:2015/pg31674.txt`
 
+    |               | Req/s    | Throughput  | 99th Latency |
+    |---------------|----------|-------------|--------------|
+    | proxy + cache | 16547.84 | 242.05 MB/s |  22.48ms     |
+    | root          | 792.08   |  11.60 MB/s | 109.98ms     |
 
 ## Todo list
 

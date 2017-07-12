@@ -14,3 +14,17 @@ caddy.test3 {
         header / Cache-control "public"
         root "/tmp/caddy-benchmark"
 }
+
+caddy.test4 {
+        tls off
+        gzip
+        proxy / caddy.test3:2015
+        cache
+}
+
+caddy.test5 {
+        tls off
+        gzip
+        header / Cache-control "public"
+        proxy / caddy.test3:2015
+}
