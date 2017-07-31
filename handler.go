@@ -61,6 +61,10 @@ func copyHeaders(from http.Header, to http.Header) {
 }
 
 func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
+	if rec, ok := w.(*httpserver.ResponseRecorder); ok {
+		rec.Replacer.Set("cache_status", status)
+	}
+
 	if handler.Config.StatusHeader != "" {
 		w.Header().Add(handler.Config.StatusHeader, status)
 	}

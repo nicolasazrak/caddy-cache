@@ -55,6 +55,10 @@ caddy.test {
 ```
 
 
+### Logs
+
+Caddy-cache adds a `{cache_status}` placeholder that can be used in logs.
+
 ## Benchmarks
 
 Benchmark files are in `benchmark` folder. Tests were run on my Lenovo G480 with Intel i3 3220 and 8gb of ram.

@@ -212,3 +212,25 @@ func TestConfigRules(t *testing.T) {
 		require.Equal(t, 2, hits)
 	})
 }
+
+func TestPlaceholder(t *testing.T) {
+	h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+		w.Header().Set("cache-control", "max-age=10")
+		return 200, nil
+	}), emptyConfig())
+
+	reqAndTest := func(expectedPlaceholder string) {
+		w := httptest.NewRecorder()
+		r, urlErr := http.NewRequest("GET", "/", nil)
+		require.NoError(t, urlErr)
+		rec := httpserver.NewResponseRecorder(w)
+		rec.Replacer = httpserver.NewReplacer(r, rec, "-")
+
+		_, err := h.ServeHTTP(rec, r)
+		require.NoError(t, err)
+		require.Equal(t, expectedPlaceholder, rec.Replacer.Replace("{cache_status}"))
+	}
+
+	reqAndTest("miss")
+	reqAndTest("hit")
+}
