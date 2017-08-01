@@ -1,10 +1,12 @@
 package cache
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"io/ioutil"
 
@@ -233,4 +235,57 @@ func TestPlaceholder(t *testing.T) {
 
 	reqAndTest("miss")
 	reqAndTest("hit")
+}
+
+func TestRangeRequests(t *testing.T) {
+	content := []byte("0123456789")
+	t.Run("it should by pass cache if there is a range request", func(t *testing.T) {
+		hits := 0
+		h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+			w.Header().Add("Cache-control", "max-age=10")
+			http.ServeContent(w, r, "content.txt", time.Now(), bytes.NewReader(content))
+			hits++
+			return 200, nil
+		}), emptyConfig())
+
+		requestAndAssert(t, h, http.Header{}, 200, cacheMiss, content)
+		requestAndAssert(t, h, http.Header{}, 200, cacheHit, content)
+		require.Equal(t, 1, hits)
+		requestAndAssert(t, h, http.Header{"Range": []string{"bytes=0-4"}}, 206, cacheBypass, []byte("01234"))
+		require.Equal(t, 2, hits)
+	})
+
+	t.Run("it should not cache 206 status", func(t *testing.T) {
+		hits := 0
+		h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+			w.WriteHeader(206)
+			w.Header().Add("Cache-control", "max-age=10")
+			w.Write(content)
+			hits++
+			return 206, nil
+		}), emptyConfig())
+
+		requestAndAssert(t, h, http.Header{"Range": []string{"bytes=0-4"}}, 206, cacheBypass, content)
+		require.Equal(t, 1, hits)
+		requestAndAssert(t, h, http.Header{}, 206, cacheMiss, content)
+		require.Equal(t, 2, hits)
+		requestAndAssert(t, h, http.Header{}, 206, cacheSkip, content)
+		require.Equal(t, 3, hits)
+	})
+
+	t.Run("it should not cache Content-Range header", func(t *testing.T) {
+		hits := 0
+		h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+			w.Header().Add("Cache-control", "max-age=10")
+			w.Header().Add("Content-Range", "0-10/34")
+			w.Write(content)
+			hits++
+			return 200, nil
+		}), emptyConfig())
+
+		requestAndAssert(t, h, http.Header{}, 200, cacheMiss, content)
+		require.Equal(t, 1, hits)
+		requestAndAssert(t, h, http.Header{}, 200, cacheSkip, content)
+		require.Equal(t, 2, hits)
+	})
 }

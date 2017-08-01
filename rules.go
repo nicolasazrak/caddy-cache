@@ -44,6 +44,11 @@ func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHead
 }
 
 func getCacheableStatus(req *http.Request, response *Response, config *Config) (bool, time.Time) {
+	// Partial responses are not supported yet
+	if response.Code == http.StatusPartialContent || response.Header().Get("Content-Range") != "" {
+		return false, now().Add(config.LockTimeout)
+	}
+
 	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, response.Code, response.HeaderMap, false)
 
 	// err means there was an error parsing headers

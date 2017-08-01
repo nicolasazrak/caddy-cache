@@ -91,8 +91,10 @@ func shouldUseCache(req *http.Request) bool {
 		return false
 	}
 
-	// Range responses still not supported
-	if req.Header.Get("accept-ranges") != "" {
+	// Range requests still not supported
+	// It may happen that the previous request for this url has a successful response
+	// but for another Range. So a special handling is needed
+	if req.Header.Get("range") != "" {
 		return false
 	}
 
