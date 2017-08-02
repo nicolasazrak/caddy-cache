@@ -45,11 +45,11 @@ func (rule *HeaderCacheRule) matches(req *http.Request, statusCode int, respHead
 
 func getCacheableStatus(req *http.Request, response *Response, config *Config) (bool, time.Time) {
 	// Partial responses are not supported yet
-	if response.Code == http.StatusPartialContent || response.Header().Get("Content-Range") != "" {
+	if response.Code == http.StatusPartialContent || response.snapHeader.Get("Content-Range") != "" {
 		return false, now().Add(config.LockTimeout)
 	}
 
-	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, response.Code, response.HeaderMap, false)
+	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, response.Code, response.snapHeader, false)
 
 	// err means there was an error parsing headers
 	// Just ignore them and make response not cacheable
@@ -70,7 +70,7 @@ func getCacheableStatus(req *http.Request, response *Response, config *Config) (
 
 	// Check if any rule matches
 	for _, rule := range config.CacheRules {
-		if rule.matches(req, response.Code, response.Header()) {
+		if rule.matches(req, response.Code, response.snapHeader) {
 
 			// If any rule matches but the response has no explicit expiration
 			if expiration.Before(now()) {

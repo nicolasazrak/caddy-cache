@@ -21,8 +21,8 @@ func makeRequest(URL string, headers http.Header) *http.Request {
 
 func makeResponse(code int, headers http.Header) *Response {
 	return &Response{
-		Code:      code,
-		HeaderMap: headers,
+		Code:       code,
+		snapHeader: headers,
 	}
 }
 

@@ -73,7 +73,7 @@ func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, statu
 func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, cacheStatus string) (int, error) {
 	handler.addStatusHeaderIfConfigured(w, cacheStatus)
 
-	copyHeaders(entry.Response.HeaderMap, w.Header())
+	copyHeaders(entry.Response.snapHeader, w.Header())
 	w.WriteHeader(entry.Response.Code)
 
 	err := entry.WriteBodyTo(w)
@@ -101,11 +101,19 @@ func shouldUseCache(req *http.Request) bool {
 	return true
 }
 
+func popOrNil(errChan chan error) (err error) {
+	select {
+	case err = <-errChan:
+	default:
+	}
+	return
+}
+
 func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error) {
 	// Create a new empty response
 	response := NewResponse()
 
-	var err error
+	errChan := make(chan error, 1)
 
 	// Do the upstream fetching in background
 	go func(req *http.Request, response *Response) {
@@ -115,8 +123,11 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 		updatedReq := req.WithContext(context.Background())
 
 		statusCode, upstreamError := handler.Next.ServeHTTP(response, updatedReq)
-		err = upstreamError
-		response.WriteHeader(statusCode) // If headers were not set this will replace them
+		errChan <- upstreamError
+
+		// If status code was not set, this will not replace it
+		// It will only ensure status code IS send
+		response.WriteHeader(statusCode)
 
 		// Wait the response body to be set.
 		// If it is private it will be the original http.ResponseWriter
@@ -131,7 +142,7 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 	response.WaitHeaders()
 
 	// Create a new CacheEntry
-	return NewHTTPCacheEntry(getKey(req), req, response, handler.Config), err
+	return NewHTTPCacheEntry(getKey(req), req, response, handler.Config), popOrNil(errChan)
 }
 
 func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {

@@ -258,8 +258,8 @@ func TestRangeRequests(t *testing.T) {
 	t.Run("it should not cache 206 status", func(t *testing.T) {
 		hits := 0
 		h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
-			w.WriteHeader(206)
 			w.Header().Add("Cache-control", "max-age=10")
+			w.WriteHeader(206)
 			w.Write(content)
 			hits++
 			return 206, nil
@@ -288,4 +288,21 @@ func TestRangeRequests(t *testing.T) {
 		requestAndAssert(t, h, http.Header{}, 200, cacheSkip, content)
 		require.Equal(t, 2, hits)
 	})
+}
+
+func TestHeaderAfterCodeSent(t *testing.T) {
+	// Althougt this seems pretty trivial
+	// it used to have a datarace
+	// Sometimes it sent header B, sometimes not
+	h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+		w.Header().Add("X-A", "A")
+		w.WriteHeader(http.StatusAccepted)
+		w.Header().Add("X-B", "B")
+		return 200, nil
+	}), emptyConfig())
+
+	res, err := doRequest(t, h)
+	require.NoError(t, err)
+	require.Equal(t, "A", res.Header.Get("X-A"))
+	require.Equal(t, "", res.Header.Get("X-B"))
 }

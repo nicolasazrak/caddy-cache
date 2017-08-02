@@ -9,9 +9,10 @@ import (
 )
 
 type Response struct {
-	Code      int         // the HTTP response code from WriteHeader
-	HeaderMap http.Header // the HTTP response headers
-	body      storage.ResponseStorage
+	Code       int         // the HTTP response code from WriteHeader
+	HeaderMap  http.Header // the HTTP response headers
+	body       storage.ResponseStorage
+	snapHeader http.Header // copy of HTTP headeres at writeHeader time
 
 	wroteHeader   bool
 	firstByteSent bool
@@ -125,6 +126,9 @@ func (rw *Response) WriteHeader(code int) {
 	}
 	rw.Code = code
 	rw.wroteHeader = true
+
+	rw.snapHeader = http.Header{}
+	copyHeaders(rw.Header(), rw.snapHeader)
 	rw.headersLock.Unlock()
 }
 
