@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
@@ -95,6 +96,10 @@ func shouldUseCache(req *http.Request) bool {
 	// It may happen that the previous request for this url has a successful response
 	// but for another Range. So a special handling is needed
 	if req.Header.Get("range") != "" {
+		return false
+	}
+
+	if strings.ToLower(req.Header.Get("Connection")) == "upgrade" && strings.ToLower(req.Header.Get("Upgrade")) == "websocket" {
 		return false
 	}
 
