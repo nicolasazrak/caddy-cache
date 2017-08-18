@@ -4,6 +4,8 @@
 
 This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 
+**Notice:** Although this plugin works with static content it is not advised. Static content will not see great benefits. It should be used when there are slow responses, for example when using caddy as a proxy to a slow backend.
+
 ## Build
 
 To use it you need to compile your own version of caddy with this plugin. First fetch the code
