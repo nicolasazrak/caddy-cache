@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/nicolasazrak/caddy-cache/storage"
+	"github.com/fellou89/caddy-cache/storage"
 )
 
 type Response struct {

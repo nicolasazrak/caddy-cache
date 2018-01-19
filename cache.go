@@ -31,7 +31,11 @@ func NewHTTPCache() *HTTPCache {
 }
 
 func (cache *HTTPCache) Get(request *http.Request) (*HTTPCacheEntry, bool) {
-	key := getKey(request)
+	entry, freshness := cache.GetFreshness(request, getKey(request))
+	return entry, freshness == 0
+}
+
+func (cache *HTTPCache) GetFreshness(request *http.Request, key string) (*HTTPCacheEntry, int) {
 	b := cache.getBucketIndexForKey(key)
 	cache.entriesLock[b].RLock()
 	defer cache.entriesLock[b].RUnlock()
@@ -39,16 +43,16 @@ func (cache *HTTPCache) Get(request *http.Request) (*HTTPCacheEntry, bool) {
 	previousEntries, exists := cache.entries[b][key]
 
 	if !exists {
-		return nil, false
+		return nil, 1
 	}
 
 	for _, entry := range previousEntries {
 		if entry.Fresh() && matchesVary(request, entry) {
-			return entry, true
+			return entry, 0
 		}
 	}
 
-	return nil, false
+	return nil, 2
 }
 
 func (cache *HTTPCache) Put(request *http.Request, entry *HTTPCacheEntry) {
