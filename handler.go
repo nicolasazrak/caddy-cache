@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
 
@@ -28,6 +29,18 @@ const (
 	cacheMiss   = "miss"
 	cacheSkip   = "skip"
 	cacheBypass = "bypass"
+)
+
+var (
+	contextKeysToPreserve = []caddy.CtxKey{
+		httpserver.OriginalURLCtxKey,
+		httpserver.ReplacerCtxKey,
+		httpserver.RemoteUserCtxKey,
+		httpserver.MitmCtxKey,
+		httpserver.RequestIDCtxKey,
+		"path_prefix",
+		"mitm",
+	}
 )
 
 func getKey(r *http.Request) string {
@@ -125,7 +138,21 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 		// Create a new context to avoid terminating the Next.ServeHTTP when the original
 		// request is closed. Otherwise if the original request is cancelled the other requests
 		// will see a bad response that has the same contents the first request has
-		updatedReq := req.WithContext(context.Background())
+		updatedContext := context.Background()
+
+		// The problem of cloning the context is that the original one has some values used by
+		// other middlewares. If those values are not present they break, #22 is an example.
+		// However there isn't a way to know which values a context has. I took the ones that
+		// I found on caddy code. If in a future there are new ones this might break.
+		// In that case this will have to change to another way
+		for _, key := range contextKeysToPreserve {
+			value := req.Context().Value(key)
+			if value != nil {
+				updatedContext = context.WithValue(updatedContext, key, value)
+			}
+		}
+
+		updatedReq := req.WithContext(updatedContext)
 
 		statusCode, upstreamError := handler.Next.ServeHTTP(response, updatedReq)
 		errChan <- upstreamError
@@ -143,7 +170,7 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 		response.Close()
 	}(req, response)
 
-	// Wait headers to de sent
+	// Wait headers to be sent
 	response.WaitHeaders()
 
 	// Create a new CacheEntry
