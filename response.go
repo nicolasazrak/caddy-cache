@@ -2,6 +2,7 @@ package cache
 
 import (
 	"errors"
+	"io/ioutil"
 	"net/http"
 	"sync"
 
@@ -78,6 +79,21 @@ func (rw *Response) writeHeader(b []byte, str string) {
 	}
 
 	rw.WriteHeader(200)
+}
+
+func (rw *Response) Read() ([]byte, error) {
+	if rw.body != nil {
+		if readerCloser, err := rw.body.GetReader(); err != nil {
+			return nil, err
+		} else {
+			if readContent, err := ioutil.ReadAll(readerCloser); err != nil {
+				return nil, err
+			} else {
+				return readContent, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 // Write is the io.Writer interface with the modification required
