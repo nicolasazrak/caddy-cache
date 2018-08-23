@@ -43,22 +43,15 @@ var (
 	}
 )
 
-func getKey(r *http.Request) string {
-	key := r.Method + " " + r.Host + r.URL.Path
-
-	q := r.URL.Query().Encode()
-	if len(q) > 0 {
-		key += "?" + q
-	}
-
-	return key
+func getKey(cacheKeyTemplate string, r *http.Request) string {
+	return httpserver.NewReplacer(r, nil, "").Replace(cacheKeyTemplate)
 }
 
 // NewHandler creates a new Handler using Next middleware
 func NewHandler(Next httpserver.Handler, config *Config) *Handler {
 	return &Handler{
 		Config:   config,
-		Cache:    NewHTTPCache(),
+		Cache:    NewHTTPCache(config.CacheKeyTemplate),
 		URLLocks: NewURLLock(),
 		Next:     Next,
 	}
@@ -174,7 +167,7 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 	response.WaitHeaders()
 
 	// Create a new CacheEntry
-	return NewHTTPCacheEntry(getKey(req), req, response, handler.Config), popOrNil(errChan)
+	return NewHTTPCacheEntry(getKey(handler.Config.CacheKeyTemplate, req), req, response, handler.Config), popOrNil(errChan)
 }
 
 func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
@@ -183,7 +176,7 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 		return handler.Next.ServeHTTP(w, r)
 	}
 
-	lock := handler.URLLocks.Adquire(getKey(r))
+	lock := handler.URLLocks.Adquire(getKey(handler.Config.CacheKeyTemplate, r))
 
 	// Lookup correct entry
 	previousEntry, exists := handler.Cache.Get(r)

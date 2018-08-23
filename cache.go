@@ -11,11 +11,12 @@ import (
 const cacheBucketsSize = 256
 
 type HTTPCache struct {
-	entries     [cacheBucketsSize]map[string][]*HTTPCacheEntry
-	entriesLock [cacheBucketsSize]*sync.RWMutex
+	cacheKeyTemplate string
+	entries          [cacheBucketsSize]map[string][]*HTTPCacheEntry
+	entriesLock      [cacheBucketsSize]*sync.RWMutex
 }
 
-func NewHTTPCache() *HTTPCache {
+func NewHTTPCache(cacheKeyTemplate string) *HTTPCache {
 	entriesLocks := [cacheBucketsSize]*sync.RWMutex{}
 	entries := [cacheBucketsSize]map[string][]*HTTPCacheEntry{}
 
@@ -25,13 +26,14 @@ func NewHTTPCache() *HTTPCache {
 	}
 
 	return &HTTPCache{
-		entries:     entries,
-		entriesLock: entriesLocks,
+		cacheKeyTemplate: cacheKeyTemplate,
+		entries:          entries,
+		entriesLock:      entriesLocks,
 	}
 }
 
 func (cache *HTTPCache) Get(request *http.Request) (*HTTPCacheEntry, bool) {
-	key := getKey(request)
+	key := getKey(cache.cacheKeyTemplate, request)
 	b := cache.getBucketIndexForKey(key)
 	cache.entriesLock[b].RLock()
 	defer cache.entriesLock[b].RUnlock()
