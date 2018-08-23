@@ -16,16 +16,18 @@ func TestParsingConfig(t *testing.T) {
 		expect    Config
 	}{
 		{"cache", false, Config{
-			StatusHeader:  defaultStatusHeader,
-			LockTimeout:   defaultLockTimeout,
-			DefaultMaxAge: defaultMaxAge,
-			CacheRules:    []CacheRule{},
+			StatusHeader:     defaultStatusHeader,
+			LockTimeout:      defaultLockTimeout,
+			DefaultMaxAge:    defaultMaxAge,
+			CacheRules:       []CacheRule{},
+			CacheKeyTemplate: defaultCacheKeyTemplate,
 		}},
 		{"cache {\n match_path /assets \n} }", false, Config{
-			StatusHeader:  defaultStatusHeader,
-			LockTimeout:   defaultLockTimeout,
-			DefaultMaxAge: defaultMaxAge,
-			CacheRules:    []CacheRule{&PathCacheRule{Path: "/assets"}},
+			StatusHeader:     defaultStatusHeader,
+			LockTimeout:      defaultLockTimeout,
+			DefaultMaxAge:    defaultMaxAge,
+			CacheRules:       []CacheRule{&PathCacheRule{Path: "/assets"}},
+			CacheKeyTemplate: defaultCacheKeyTemplate,
 		}},
 		{"cache {\n match_path /assets \n match_path /api \n} \n}", false, Config{
 			StatusHeader:  defaultStatusHeader,
@@ -35,6 +37,7 @@ func TestParsingConfig(t *testing.T) {
 				&PathCacheRule{Path: "/assets"},
 				&PathCacheRule{Path: "/api"},
 			},
+			CacheKeyTemplate: defaultCacheKeyTemplate,
 		}},
 		{"cache {\n match_header Content-Type image/png image/gif \n match_path /assets \n}", false, Config{
 			StatusHeader:  defaultStatusHeader,
@@ -44,31 +47,43 @@ func TestParsingConfig(t *testing.T) {
 				&HeaderCacheRule{Header: "Content-Type", Value: []string{"image/png", "image/gif"}},
 				&PathCacheRule{Path: "/assets"},
 			},
+			CacheKeyTemplate: defaultCacheKeyTemplate,
 		}},
 		{"cache {\n status_header X-Custom-Header \n}", false, Config{
-			StatusHeader:  "X-Custom-Header",
-			LockTimeout:   defaultLockTimeout,
-			DefaultMaxAge: defaultMaxAge,
-			CacheRules:    []CacheRule{},
+			StatusHeader:     "X-Custom-Header",
+			LockTimeout:      defaultLockTimeout,
+			DefaultMaxAge:    defaultMaxAge,
+			CacheRules:       []CacheRule{},
+			CacheKeyTemplate: defaultCacheKeyTemplate,
 		}},
 		{"cache {\n path /tmp/caddy \n}", false, Config{
-			StatusHeader:  defaultStatusHeader,
-			LockTimeout:   defaultLockTimeout,
-			DefaultMaxAge: defaultMaxAge,
-			CacheRules:    []CacheRule{},
-			Path:          "/tmp/caddy",
+			StatusHeader:     defaultStatusHeader,
+			LockTimeout:      defaultLockTimeout,
+			DefaultMaxAge:    defaultMaxAge,
+			CacheRules:       []CacheRule{},
+			Path:             "/tmp/caddy",
+			CacheKeyTemplate: defaultCacheKeyTemplate,
 		}},
 		{"cache {\n lock_timeout 1s \n}", false, Config{
-			StatusHeader:  defaultStatusHeader,
-			LockTimeout:   time.Duration(1) * time.Second,
-			DefaultMaxAge: defaultMaxAge,
-			CacheRules:    []CacheRule{},
+			StatusHeader:     defaultStatusHeader,
+			LockTimeout:      time.Duration(1) * time.Second,
+			DefaultMaxAge:    defaultMaxAge,
+			CacheRules:       []CacheRule{},
+			CacheKeyTemplate: defaultCacheKeyTemplate,
 		}},
 		{"cache {\n default_max_age 1h \n}", false, Config{
-			StatusHeader:  defaultStatusHeader,
-			LockTimeout:   defaultLockTimeout,
-			DefaultMaxAge: time.Duration(1) * time.Hour,
-			CacheRules:    []CacheRule{},
+			StatusHeader:     defaultStatusHeader,
+			LockTimeout:      defaultLockTimeout,
+			DefaultMaxAge:    time.Duration(1) * time.Hour,
+			CacheRules:       []CacheRule{},
+			CacheKeyTemplate: defaultCacheKeyTemplate,
+		}},
+		{"cache {\n cache_key \"{scheme} {host}{uri}\" \n}", false, Config{
+			StatusHeader:     defaultStatusHeader,
+			LockTimeout:      defaultLockTimeout,
+			DefaultMaxAge:    defaultMaxAge,
+			CacheRules:       []CacheRule{},
+			CacheKeyTemplate: "{scheme} {host}{uri}",
 		}},
 		{"cache {\n match_header aheader \n}", true, Config{}},          // match_header without value
 		{"cache {\n lock_timeout aheader \n}", true, Config{}},          // lock_timeout with invalid duration
@@ -79,6 +94,7 @@ func TestParsingConfig(t *testing.T) {
 		{"cache {\n match_path / ea \n}", true, Config{}},               // Invalid number of parameters in match
 		{"cache {\n invalid / ea \n}", true, Config{}},                  // Invalid directive
 		{"cache {\n path \n}", true, Config{}},                          // Path without arguments
+		{"cache {\n cache_key \n}", true, Config{}},                     // cache_key without arguments
 	}
 
 	for i, test := range tests {
