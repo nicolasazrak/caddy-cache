@@ -57,7 +57,7 @@ func Setup(c *caddy.Controller) error {
 
 // defaultCacheKeyTemplate is the placeholder template that will be used to
 // generate the cache key.
-const defaultCacheKeyTemplate = "{method} {host}{path}{query}"
+const defaultCacheKeyTemplate = "{method} {host}{path}?{query}"
 
 func emptyConfig() *Config {
 	return &Config{

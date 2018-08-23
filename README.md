@@ -42,7 +42,7 @@ For more advanced usages you can use the following parameters:
 - `path`: Path where to store the cached responses. By default it will use the operating system temp folder.
 - `default_max_age`: Max-age to use for matched responses that do not have an explicit expiration. (Default: 5 minutes)
 - `status_header`: Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit. (Default: `X-Cache-Status`)
-- `cache_key`: Configures the cache key using [Placeholders](https://caddyserver.com/docs/placeholders), it supports any of the request placeholders. (Default: `{method} {host}{path}{query}`)
+- `cache_key`: Configures the cache key using [Placeholders](https://caddyserver.com/docs/placeholders), it supports any of the request placeholders. (Default: `{method} {host}{path}?{query}`)
 
 ```
 caddy.test {
