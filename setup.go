@@ -17,11 +17,12 @@ var (
 )
 
 type Config struct {
-	StatusHeader  string
-	DefaultMaxAge time.Duration
-	LockTimeout   time.Duration
-	CacheRules    []CacheRule
-	Path          string
+	StatusHeader     string
+	DefaultMaxAge    time.Duration
+	LockTimeout      time.Duration
+	CacheRules       []CacheRule
+	Path             string
+	CacheKeyTemplate string
 }
 
 func init() {
@@ -54,13 +55,18 @@ func Setup(c *caddy.Controller) error {
 	return nil
 }
 
+// defaultCacheKeyTemplate is the placeholder template that will be used to
+// generate the cache key.
+const defaultCacheKeyTemplate = "{method} {host}{path}?{query}"
+
 func emptyConfig() *Config {
 	return &Config{
-		StatusHeader:  defaultStatusHeader,
-		DefaultMaxAge: defaultMaxAge,
-		LockTimeout:   defaultLockTimeout,
-		CacheRules:    []CacheRule{},
-		Path:          defaultPath,
+		StatusHeader:     defaultStatusHeader,
+		DefaultMaxAge:    defaultMaxAge,
+		LockTimeout:      defaultLockTimeout,
+		CacheRules:       []CacheRule{},
+		Path:             defaultPath,
+		CacheKeyTemplate: defaultCacheKeyTemplate,
 	}
 }
 
@@ -118,6 +124,11 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 			}
 			cacheRule := &PathCacheRule{Path: args[0]}
 			config.CacheRules = append(config.CacheRules, cacheRule)
+		case "cache_key":
+			if len(args) != 1 {
+				return nil, c.Err("Invalid usage of cache_key in cache config.")
+			}
+			config.CacheKeyTemplate = args[0]
 		default:
 			return nil, c.Err("Unknown cache parameter: " + parameter)
 		}

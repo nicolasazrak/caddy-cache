@@ -42,6 +42,7 @@ For more advanced usages you can use the following parameters:
 - `path`: Path where to store the cached responses. By default it will use the operating system temp folder.
 - `default_max_age`: Max-age to use for matched responses that do not have an explicit expiration. (Default: 5 minutes)
 - `status_header`: Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit. (Default: `X-Cache-Status`)
+- `cache_key`: Configures the cache key using [Placeholders](https://caddyserver.com/docs/placeholders), it supports any of the request placeholders. (Default: `{method} {host}{path}?{query}`)
 
 ```
 caddy.test {
@@ -101,9 +102,9 @@ Benchmark files are in `benchmark` folder. Tests were run on my Lenovo G480 with
 - [x] Stream responses while fetching them from upstream
 - [x] Locking concurrent requests to the same path
 - [x] File disk storage for larger objects
+- [x] Add a configuration to not use query params in cache key (via `cache_key` directive)
 - [ ] Purge cache entries [#1](https://github.com/nicolasazrak/caddy-cache/issues/1)
 - [ ] Serve stale content if proxy is down
 - [ ] Punch hole cache
 - [ ] Do conditional requests to revalidate data
 - [ ] Max entries size
-- [ ] Add a configuration to not use query params in cache key
