@@ -81,6 +81,14 @@ func TestCacheableStatus(t *testing.T) {
 		require.Equal(t, testTime.Add(c.LockTimeout), expiration)
 	})
 
+	t.Run("should return public = false if the status code is 502", func(t *testing.T) {
+		request := makeRequest("/", http.Header{})
+		response := makeResponse(502, http.Header{})
+		isPublic, _ := getCacheableStatus(request, response, c)
+
+		require.False(t, isPublic)
+	})
+
 	t.Run("should return public = true if it has explicit expiration", func(t *testing.T) {
 		request := makeRequest("/", http.Header{})
 		response := makeResponse(200, makeHeader("Cache-control", "max-age=5"))
