@@ -124,6 +124,18 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 	// Create a new empty response
 	response := NewResponse()
 
+	// this replacer is used to fill in header field values
+	replacer := httpserver.NewReplacer(req, nil, "")
+
+	// set headers for request going upstream
+	if handler.Config.UpstreamHeaders != nil {
+		// modify headers for request that will be sent to the upstream host
+		mutateHeadersByRules(req.Header, handler.Config.UpstreamHeaders, replacer)
+		if hostHeaders, ok := req.Header["Host"]; ok && len(hostHeaders) > 0 {
+			req.Host = hostHeaders[len(hostHeaders)-1]
+		}
+	}
+
 	errChan := make(chan error, 1)
 
 	// Do the upstream fetching in background
@@ -237,4 +249,24 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	handler.Cache.Put(r, entry)
 	lock.Unlock()
 	return handler.respond(w, entry, cacheMiss)
+}
+
+func mutateHeadersByRules(headers, rules http.Header, repl httpserver.Replacer) {
+	for ruleField, ruleValues := range rules {
+		if strings.HasPrefix(ruleField, "+") {
+			for _, ruleValue := range ruleValues {
+				replacement := repl.Replace(ruleValue)
+				if len(replacement) > 0 {
+					headers.Add(strings.TrimPrefix(ruleField, "+"), replacement)
+				}
+			}
+		} else if strings.HasPrefix(ruleField, "-") {
+			headers.Del(strings.TrimPrefix(ruleField, "-"))
+		} else if len(ruleValues) > 0 {
+			replacement := repl.Replace(ruleValues[len(ruleValues)-1])
+			if len(replacement) > 0 {
+				headers.Set(ruleField, replacement)
+			}
+		}
+	}
 }

@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"net/http"
+	"strings"
 	"time"
 
 	"os"
@@ -17,12 +19,14 @@ var (
 )
 
 type Config struct {
-	StatusHeader     string
-	DefaultMaxAge    time.Duration
-	LockTimeout      time.Duration
-	CacheRules       []CacheRule
-	Path             string
-	CacheKeyTemplate string
+	StatusHeader      string
+	UpstreamHeaders   http.Header
+	DownstreamHeaders http.Header
+	DefaultMaxAge     time.Duration
+	LockTimeout       time.Duration
+	CacheRules        []CacheRule
+	Path              string
+	CacheKeyTemplate  string
 }
 
 func init() {
@@ -89,6 +93,24 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 				return nil, c.Err("Invalid usage of status_header in cache config.")
 			}
 			config.StatusHeader = args[0]
+		case "header_upstream":
+			var header, value string
+			if !c.Args(&header, &value) {
+				// When removing a header, the value can be optional.
+				if !strings.HasPrefix(header, "-") {
+					return c.ArgErr()
+				}
+			}
+			config.upstreamHeaders.Add(header, value)
+		case "header_downstream":
+			var header, value string
+			if !c.Args(&header, &value) {
+				// When removing a header, the value can be optional.
+				if !strings.HasPrefix(header, "-") {
+					return c.ArgErr()
+				}
+			}
+			config.downstreamHeaders.Add(header, value)
 		case "lock_timeout":
 			if len(args) != 1 {
 				return nil, c.Err("Invalid usage of lock_timeout in cache config.")
