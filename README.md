@@ -42,7 +42,10 @@ For more advanced usages you can use the following parameters:
 - `path`: Path where to store the cached responses. By default it will use the operating system temp folder.
 - `default_max_age`: Max-age to use for matched responses that do not have an explicit expiration. (Default: 5 minutes)
 - `status_header`: Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit. (Default: `X-Cache-Status`)
-- `cache_key`: Configures the cache key using [Placeholders](https://caddyserver.com/docs/placeholders), it supports any of the request placeholders. (Default: `{method} {host}{path}?{query}`)
+- `cache_key`: Configures the cache key using [Placeholders]
+(https://caddyserver.com/docs/placeholders), it supports any of the request placeholders. (Default: `{method} {host}{path}?{query}`)
+- `header_upstream` sets headers to be passed to the ource address. The field name is name and the value is value. This option can be specified multiple times for multiple headers, and dynamic values can also be inserted using [request placeholders](https://caddyserver.com/docs/placeholders). By default, existing header fields will be replaced, but you can add/merge field values by prefixing the field name with a plus sign (+). You can remove fields by prefixing the header name with a minus sign (-) and leaving the value blank.
+- `header_downstream` modifies response headers coming back from the source address. It works the same way header_upstream does.
 
 ```
 caddy.test {
