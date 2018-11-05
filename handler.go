@@ -22,6 +22,8 @@ type Handler struct {
 
 	// Handles locking for different URLs
 	URLLocks *URLLock
+
+	Replacer httpserver.Replacer
 }
 
 const (
@@ -67,6 +69,26 @@ func copyHeaders(from http.Header, to http.Header) {
 	}
 }
 
+func mutateHeadersByRules(headers, rules http.Header, repl httpserver.Replacer) {
+	for ruleField, ruleValues := range rules {
+		if strings.HasPrefix(ruleField, "+") {
+			for _, ruleValue := range ruleValues {
+				replacement := repl.Replace(ruleValue)
+				if len(replacement) > 0 {
+					headers.Add(strings.TrimPrefix(ruleField, "+"), replacement)
+				}
+			}
+		} else if strings.HasPrefix(ruleField, "-") {
+			headers.Del(strings.TrimPrefix(ruleField, "-"))
+		} else if len(ruleValues) > 0 {
+			replacement := repl.Replace(ruleValues[len(ruleValues)-1])
+			if len(replacement) > 0 {
+				headers.Set(ruleField, replacement)
+			}
+		}
+	}
+}
+
 func (handler *Handler) addStatusHeaderIfConfigured(w http.ResponseWriter, status string) {
 	if rec, ok := w.(*httpserver.ResponseRecorder); ok {
 		rec.Replacer.Set("cache_status", status)
@@ -81,6 +103,7 @@ func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, ca
 	handler.addStatusHeaderIfConfigured(w, cacheStatus)
 
 	copyHeaders(entry.Response.snapHeader, w.Header())
+	mutateHeadersByRules(w.Header(), handler.Config.DownstreamHeaders, replacer)
 	w.WriteHeader(entry.Response.Code)
 
 	err := entry.WriteBodyTo(w)
@@ -124,13 +147,10 @@ func (handler *Handler) fetchUpstream(req *http.Request) (*HTTPCacheEntry, error
 	// Create a new empty response
 	response := NewResponse()
 
-	// this replacer is used to fill in header field values
-	replacer := httpserver.NewReplacer(req, nil, "")
-
 	// set headers for request going upstream
 	if handler.Config.UpstreamHeaders != nil {
 		// modify headers for request that will be sent to the upstream host
-		mutateHeadersByRules(req.Header, handler.Config.UpstreamHeaders, replacer)
+		mutateHeadersByRules(req.Header, handler.Config.UpstreamHeaders, handler.Replacer)
 		if hostHeaders, ok := req.Header["Host"]; ok && len(hostHeaders) > 0 {
 			req.Host = hostHeaders[len(hostHeaders)-1]
 		}
@@ -187,6 +207,9 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 		handler.addStatusHeaderIfConfigured(w, cacheBypass)
 		return handler.Next.ServeHTTP(w, r)
 	}
+
+	// Set replacer
+	handler.Replacer = httpserver.NewReplacer(r, nil, "")
 
 	lock := handler.URLLocks.Adquire(getKey(handler.Config.CacheKeyTemplate, r))
 
@@ -249,24 +272,4 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	handler.Cache.Put(r, entry)
 	lock.Unlock()
 	return handler.respond(w, entry, cacheMiss)
-}
-
-func mutateHeadersByRules(headers, rules http.Header, repl httpserver.Replacer) {
-	for ruleField, ruleValues := range rules {
-		if strings.HasPrefix(ruleField, "+") {
-			for _, ruleValue := range ruleValues {
-				replacement := repl.Replace(ruleValue)
-				if len(replacement) > 0 {
-					headers.Add(strings.TrimPrefix(ruleField, "+"), replacement)
-				}
-			}
-		} else if strings.HasPrefix(ruleField, "-") {
-			headers.Del(strings.TrimPrefix(ruleField, "-"))
-		} else if len(ruleValues) > 0 {
-			replacement := repl.Replace(ruleValues[len(ruleValues)-1])
-			if len(replacement) > 0 {
-				headers.Set(ruleField, replacement)
-			}
-		}
-	}
 }

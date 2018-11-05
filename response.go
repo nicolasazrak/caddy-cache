@@ -129,6 +129,7 @@ func (rw *Response) WriteHeader(code int) {
 
 	rw.snapHeader = http.Header{}
 	copyHeaders(rw.Header(), rw.snapHeader)
+
 	rw.headersLock.Unlock()
 }
 

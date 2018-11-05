@@ -65,12 +65,14 @@ const defaultCacheKeyTemplate = "{method} {host}{path}?{query}"
 
 func emptyConfig() *Config {
 	return &Config{
-		StatusHeader:     defaultStatusHeader,
-		DefaultMaxAge:    defaultMaxAge,
-		LockTimeout:      defaultLockTimeout,
-		CacheRules:       []CacheRule{},
-		Path:             defaultPath,
-		CacheKeyTemplate: defaultCacheKeyTemplate,
+		StatusHeader:      defaultStatusHeader,
+		UpstreamHeaders:   make(http.Header),
+		DownstreamHeaders: make(http.Header),
+		DefaultMaxAge:     defaultMaxAge,
+		LockTimeout:       defaultLockTimeout,
+		CacheRules:        []CacheRule{},
+		Path:              defaultPath,
+		CacheKeyTemplate:  defaultCacheKeyTemplate,
 	}
 }
 
@@ -94,23 +96,21 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 			}
 			config.StatusHeader = args[0]
 		case "header_upstream":
-			var header, value string
-			if !c.Args(&header, &value) {
+			if len(args) != 2 {
 				// When removing a header, the value can be optional.
-				if !strings.HasPrefix(header, "-") {
+				if !strings.HasPrefix(args[0], "-") {
 					return c.ArgErr()
 				}
 			}
-			config.upstreamHeaders.Add(header, value)
+			config.UpstreamHeaders.Add(args[0], args[1])
 		case "header_downstream":
-			var header, value string
-			if !c.Args(&header, &value) {
+			if len(args) != 2 {
 				// When removing a header, the value can be optional.
-				if !strings.HasPrefix(header, "-") {
+				if !strings.HasPrefix(args[0], "-") {
 					return c.ArgErr()
 				}
 			}
-			config.downstreamHeaders.Add(header, value)
+			config.DownstreamHeaders.Add(args[0], args[1])
 		case "lock_timeout":
 			if len(args) != 1 {
 				return nil, c.Err("Invalid usage of lock_timeout in cache config.")
