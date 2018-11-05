@@ -12,10 +12,12 @@ import (
 )
 
 var (
-	defaultStatusHeader = "X-Cache-Status"
-	defaultLockTimeout  = time.Duration(5) * time.Minute
-	defaultMaxAge       = time.Duration(5) * time.Minute
-	defaultPath         = ""
+	defaultStatusHeader      = "X-Cache-Status"
+	defaultUpstreamHeaders   = make(http.Header)
+	defaultDownstreamHeaders = make(http.Header)
+	defaultLockTimeout       = time.Duration(5) * time.Minute
+	defaultMaxAge            = time.Duration(5) * time.Minute
+	defaultPath              = ""
 )
 
 type Config struct {
@@ -66,8 +68,8 @@ const defaultCacheKeyTemplate = "{method} {host}{path}?{query}"
 func emptyConfig() *Config {
 	return &Config{
 		StatusHeader:      defaultStatusHeader,
-		UpstreamHeaders:   make(http.Header),
-		DownstreamHeaders: make(http.Header),
+		UpstreamHeaders:   defaultUpstreamHeaders,
+		DownstreamHeaders: defaultDownstreamHeaders,
 		DefaultMaxAge:     defaultMaxAge,
 		LockTimeout:       defaultLockTimeout,
 		CacheRules:        []CacheRule{},
