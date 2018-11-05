@@ -98,21 +98,29 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 			}
 			config.StatusHeader = args[0]
 		case "header_upstream":
+			var header, val string
 			if len(args) != 2 {
 				// When removing a header, the value can be optional.
 				if !strings.HasPrefix(args[0], "-") {
 					return nil, c.ArgErr()
 				}
+			} else {
+				val = args[1]
 			}
-			config.UpstreamHeaders.Add(args[0], args[1])
+			header = args[0]
+			config.UpstreamHeaders.Add(header, val)
 		case "header_downstream":
+			var header, val string
 			if len(args) != 2 {
 				// When removing a header, the value can be optional.
 				if !strings.HasPrefix(args[0], "-") {
 					return nil, c.ArgErr()
 				}
+			} else {
+				val = args[1]
 			}
-			config.DownstreamHeaders.Add(args[0], args[1])
+			header = args[0]
+			config.DownstreamHeaders.Add(header, val)
 		case "lock_timeout":
 			if len(args) != 1 {
 				return nil, c.Err("Invalid usage of lock_timeout in cache config.")
