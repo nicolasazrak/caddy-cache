@@ -99,7 +99,7 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 			if len(args) != 2 {
 				// When removing a header, the value can be optional.
 				if !strings.HasPrefix(args[0], "-") {
-					return c.ArgErr()
+					return nil, c.ArgErr()
 				}
 			}
 			config.UpstreamHeaders.Add(args[0], args[1])
@@ -107,7 +107,7 @@ func cacheParse(c *caddy.Controller) (*Config, error) {
 			if len(args) != 2 {
 				// When removing a header, the value can be optional.
 				if !strings.HasPrefix(args[0], "-") {
-					return c.ArgErr()
+					return nil, c.ArgErr()
 				}
 			}
 			config.DownstreamHeaders.Add(args[0], args[1])
