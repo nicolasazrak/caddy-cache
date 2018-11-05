@@ -103,7 +103,7 @@ func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, ca
 	handler.addStatusHeaderIfConfigured(w, cacheStatus)
 
 	copyHeaders(entry.Response.snapHeader, w.Header())
-	mutateHeadersByRules(w.Header(), handler.Config.DownstreamHeaders, replacer)
+	mutateHeadersByRules(w.Header(), handler.Config.DownstreamHeaders, handler.Replacer)
 	w.WriteHeader(entry.Response.Code)
 
 	err := entry.WriteBodyTo(w)
