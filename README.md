@@ -44,7 +44,7 @@ For more advanced usages you can use the following parameters:
 - `status_header`: Sets a header to add to the response indicating the status. It will respond with: skip, miss or hit. (Default: `X-Cache-Status`)
 - `cache_key`: Configures the cache key using [Placeholders]
 (https://caddyserver.com/docs/placeholders), it supports any of the request placeholders. (Default: `{method} {host}{path}?{query}`)
-- `header_upstream` sets headers to be passed to the ource address. The field name is name and the value is value. This option can be specified multiple times for multiple headers, and dynamic values can also be inserted using [request placeholders](https://caddyserver.com/docs/placeholders). By default, existing header fields will be replaced, but you can add/merge field values by prefixing the field name with a plus sign (+). You can remove fields by prefixing the header name with a minus sign (-) and leaving the value blank.
+- `header_upstream` sets headers to be passed to the source address. The field name is name and the value is value. This option can be specified multiple times for multiple headers, and dynamic values can also be inserted using [request placeholders](https://caddyserver.com/docs/placeholders). By default, existing header fields will be replaced, but you can add/merge field values by prefixing the field name with a plus sign (+). You can remove fields by prefixing the header name with a minus sign (-) and leaving the value blank.
 - `header_downstream` modifies response headers coming back from the source address. It works the same way header_upstream does.
 
 ```
@@ -52,6 +52,8 @@ caddy.test {
     proxy / yourserver:5000
     cache {
         match_path /assets
+        header_upstream X-Request-By cross-CDN
+        header_downstream -Server
         match_header Content-Type image/jpg image/png
         status_header X-Cache-Status
         default_max_age 15m
