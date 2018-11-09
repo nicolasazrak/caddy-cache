@@ -72,6 +72,10 @@ func (s *Subscription) NotifyAll(newBytes int) {
 	s.subscribersLock.RLock()
 	defer s.subscribersLock.RUnlock()
 	for _, subscriber := range s.subscribers {
+		// fix If the subscriber's length is not 0, it will block all the time.
+		if len(subscriber) == 1 {
+			return
+		}
 		subscriber <- newBytes
 	}
 }
