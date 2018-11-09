@@ -71,6 +71,10 @@ func (s *Subscription) Close() {
 func (s *Subscription) NotifyAll(newBytes int) {
 	s.subscribersLock.RLock()
 	defer s.subscribersLock.RUnlock()
+	// Unlock if no subscribers
+	if len(s.subscribers) == 0 {
+		return
+	}
 	for _, subscriber := range s.subscribers {
 		subscriber <- newBytes
 	}
