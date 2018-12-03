@@ -73,4 +73,20 @@ func TestSubscription(t *testing.T) {
 		s.RemoveSubscriber(s2)
 		<-ended
 	})
+
+	t.Run("one listener should not block all others", func(t *testing.T) {
+		s := NewSubscription()
+
+		s1 := s.NewSubscriber()
+		s2 := s.NewSubscriber() // This subscriber never receives the content
+
+		s.NotifyAll(9)
+
+		<-s1
+
+		s.NotifyAll(10)
+
+		require.Len(t, s1, 1)
+		require.Len(t, s2, 1)
+	})
 }
