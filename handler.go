@@ -107,8 +107,10 @@ func (handler *Handler) respond(w http.ResponseWriter, entry *HTTPCacheEntry, ca
 	w.WriteHeader(entry.Response.Code)
 
 	err := entry.WriteBodyTo(w)
-
-	return entry.Response.Code, err
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return 0, nil
 }
 
 /* Handler */
