@@ -51,3 +51,63 @@ func TestCacheKeyTemplating(t *testing.T) {
 		})
 	}
 }
+
+func TestWebSocketDetection(t *testing.T) {
+	// Server receives a request with header line:
+	//
+	//	Connection: Websocket
+	//
+	chrome := http.Header{
+		"Connection": {"Websocket"},
+		"Upgrade":    {"Websocket"},
+	}
+
+	// Server receives a request with header line:
+	//
+	//	Connection: keep-alive, Websocket
+	//
+	firefox := http.Header{
+		"Connection": {"keep-alive, Websocket"},
+		"Upgrade":    {"Websocket"},
+	}
+
+	// Server receives a request with header lines:
+	//
+	//	Connection: keep-alive
+	//	Connection: Websocket
+	//
+	other := http.Header{
+		"Connection": {"keep-alive", "Websocket"},
+		"Upgrade":    {"Websocket"},
+	}
+
+	safari := chrome
+
+	// Server receives a request with header line:
+	//
+	//	Connection: notWebSocket
+	//
+	wrongConnection := http.Header{
+		"Connection": {"notWebSocket"},
+		"Upgrade":    {"Websocket"},
+	}
+
+	// Server receives a request with header line:
+	//
+	//	Upgrade: notWebSocket
+	//
+	wrongUpgrade := http.Header{
+		"Connection": {"Websocket"},
+		"Upgrade":    {"notWebsocket"},
+	}
+
+	// Websockets.
+	require.Equal(t, isWebSocket(chrome), true, "Bad detection of Chrome headers")
+	require.Equal(t, isWebSocket(firefox), true, "Bad detection of Firefox headers")
+	require.Equal(t, isWebSocket(other), true, "Bad detection of other headers")
+	require.Equal(t, isWebSocket(safari), true, "Bad detection of Safari headers")
+
+	// Not websockets.
+	require.Equal(t, isWebSocket(wrongConnection), false, "Bad detection of Connection header")
+	require.Equal(t, isWebSocket(wrongUpgrade), false, "Bad detection of Upgrade header")
+}
