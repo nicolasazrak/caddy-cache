@@ -8,8 +8,11 @@ This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 
 ## Build
 
+**Notice:** Build requires Go 1.12 or higher.
+
 To use it you need to compile your own version of caddy with this plugin. First fetch the code
 
+- `export GO111MODULE=on`
 - `go get -u github.com/mholt/caddy/...`
 - `go get -u github.com/nicolasazrak/caddy-cache/...`
 

@@ -130,7 +130,7 @@ func shouldUseCache(req *http.Request) bool {
 		return false
 	}
 
-	if strings.ToLower(req.Header.Get("Connection")) == "upgrade" && strings.ToLower(req.Header.Get("Upgrade")) == "websocket" {
+	if isWebSocket(req.Header) {
 		return false
 	}
 
@@ -274,4 +274,55 @@ func (handler *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, 
 	handler.Cache.Put(r, entry)
 	lock.Unlock()
 	return handler.respond(w, entry, cacheMiss)
+}
+
+func isWebSocket(h http.Header) bool {
+	if h == nil {
+		return false
+	}
+
+	// Get gets the *first* value associated with the given key.
+	if strings.ToLower(h.Get("Upgrade")) != "websocket" {
+		return false
+	}
+
+	// To access multiple values of a key, access the map directly.
+	for _, value := range getHeaderValues(h, "Connection") {
+		if strings.ToLower(value) == "websocket" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func getHeaderValues(h http.Header, name string) []string {
+	var values = []string{}
+
+	if h == nil {
+		return values
+	}
+
+	// If a server received a request with header lines,
+	//
+	//	Host: example.com
+	//	accept-encoding: gzip, deflate
+	//	Accept-Language: en-us
+	//	fOO: Bar
+	//	foo: two
+	//
+	// then
+	//
+	//	Header = map[string][]string{
+	//		"Accept-Encoding": {"gzip, deflate"},
+	//		"Accept-Language": {"en-us"},
+	//		"Foo": {"Bar", "two"},
+	//	}
+	for _, slice := range h[name] {
+		for _, value := range strings.Split(slice, ",") {
+			values = append(values, strings.Trim(value, " "))
+		}
+	}
+
+	return values
 }
