@@ -49,6 +49,10 @@ func getCacheableStatus(req *http.Request, response *Response, config *Config) (
 		return false, now().Add(config.LockTimeout)
 	}
 
+	if response.Code == http.StatusNotModified {
+		return false, now()
+	}
+
 	reasonsNotToCache, expiration, err := cacheobject.UsingRequestResponse(req, response.Code, response.snapHeader, false)
 
 	// err means there was an error parsing headers

@@ -306,3 +306,34 @@ func TestHeaderAfterCodeSent(t *testing.T) {
 	require.Equal(t, "A", res.Header.Get("X-A"))
 	require.Equal(t, "", res.Header.Get("X-B"))
 }
+
+func TestNotModifiedContent(t *testing.T) {
+	content := []byte("OK!")
+	h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+		w.Header().Add("Cache-control", "max-age=10")
+		if r.Header.Get("e-tag") == "a" {
+			w.WriteHeader(http.StatusNotModified)
+			return http.StatusNotModified, nil
+		} else {
+			w.WriteHeader(http.StatusOK)
+			w.Write(content)
+			return http.StatusOK, nil
+		}
+	}), emptyConfig())
+
+	res1, err := doRequestWithHeaders(t, h, makeHeader("e-tag", "a"))
+	require.NoError(t, err)
+
+	res1Content, err := ioutil.ReadAll(res1.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNotModified, res1.StatusCode)
+	require.Equal(t, []byte{}, res1Content)
+
+	res2, err := doRequestWithHeaders(t, h, http.Header{})
+	require.NoError(t, err)
+
+	res2Content, err := ioutil.ReadAll(res2.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, res2.StatusCode)
+	require.Equal(t, content, res2Content)
+}
