@@ -13,17 +13,17 @@ This is a simple caching plugin for [caddy server](https://caddyserver.com/)
 To use it you need to compile your own version of caddy with this plugin. First fetch the code
 
 - `export GO111MODULE=on`
-- `go get -u github.com/mholt/caddy/...`
+- `go get -u github.com/caddyserver/caddy/...`
 - `go get -u github.com/nicolasazrak/caddy-cache/...`
 
-Then update the file in `$GOPATH/src/github.com/mholt/caddy/caddy/caddymain/run.go` and import `_ "github.com/nicolasazrak/caddy-cache"`.
+Then update the file in `$GOPATH/src/github.com/caddyserver/caddy/caddy/caddymain/run.go` and import `_ "github.com/nicolasazrak/caddy-cache"`.
 
 And finally build caddy with:
 
-- `cd $GOPATH/src/github.com/mholt/caddy/caddy`
+- `cd $GOPATH/src/github.com/caddyserver/caddy/caddy`
 - `./build.bash`
 
-This will produce the caddy binary in that same folder. For more information about how plugins work read [this doc](https://github.com/mholt/caddy/wiki/Writing-a-Plugin:-Directives). 
+This will produce the caddy binary in that same folder. For more information about how plugins work read [this doc](https://github.com/caddyserver/caddy/wiki/Writing-a-Plugin:-Directives). 
 
 ## Usage
 
