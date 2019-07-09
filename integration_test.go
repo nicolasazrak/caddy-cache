@@ -310,7 +310,7 @@ func TestHeaderAfterCodeSent(t *testing.T) {
 func TestNotModifiedContent(t *testing.T) {
 	content := []byte("OK!")
 	h := NewHandler(httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
-		w.Header().Add("Cache-control", "max-age=10")
+		w.Header().Add("Cache-control", "max-age=1")
 		if r.Header.Get("e-tag") == "a" {
 			w.WriteHeader(http.StatusNotModified)
 			return http.StatusNotModified, nil

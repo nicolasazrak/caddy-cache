@@ -129,6 +129,7 @@ func (rw *Response) WriteHeader(code int) {
 
 	rw.snapHeader = http.Header{}
 	copyHeaders(rw.Header(), rw.snapHeader)
+	rw.snapHeader.Del("server")
 	rw.headersLock.Unlock()
 }
 
@@ -160,6 +161,9 @@ func (rw *Response) Close() error {
 
 // Clean the body if it is set
 func (rw *Response) Clean() error {
+	rw.bodyLock.RLock()
+	defer rw.bodyLock.RUnlock()
+
 	if rw.body == nil {
 		return nil
 	}
