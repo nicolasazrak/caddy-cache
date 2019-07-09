@@ -7,17 +7,17 @@ RUN    apk -U --no-progress upgrade \
     && apk update \
     && apk add --upgrade busybox sed bash \
     && apk -U --force --no-progress add git \
-    && git clone https://github.com/mholt/caddy.git /go/src/github.com/mholt/caddy \
-    && cd /go/src/github.com/mholt/caddy \
+    && git clone https://github.com/caddyserver/caddy.git /go/src/github.com/caddyserver/caddy \
+    && cd /go/src/github.com/caddyserver/caddy \
     && git config --global user.email "caddy@caddyserver.com" \
     && git config --global user.name "caddy" \
     && go get ./... \
     && go get -u github.com/nicolasazrak/caddy-cache \
     && cd /go/src/github.com/nicolasazrak/caddy-cache \
     && go get ./... \
-    && sed -i -z 's/"io\/ioutil"/"io\/ioutil"\n\t_ "github.com\/nicolasazrak\/caddy-cache"/' /go/src/github.com/mholt/caddy/caddy/caddymain/run.go
+    && sed -i -z 's/"io\/ioutil"/"io\/ioutil"\n\t_ "github.com\/nicolasazrak\/caddy-cache"/' /go/src/github.com/caddyserver/caddy/caddy/caddymain/run.go
 
-RUN cd /go/src/github.com/mholt/caddy/caddy && ./build.bash "/usr/bin/caddy" \
+RUN cd /go/src/github.com/caddyserver/caddy/caddy && ./build.bash "/usr/bin/caddy" \
     #&& mv /go/bin/caddy /usr/bin \
     && apk del --purge git sed bash \
     && rm -rf $GOPATH /var/cache/apk/*
