@@ -1,3 +1,6 @@
+## This project is currently unsupported and unmaintained. It was developed for caddy 1 and won't work with newer versions
+
+
 # caddy cache
 
 [![Build Status](https://travis-ci.org/nicolasazrak/caddy-cache.svg?branch=master)](https://travis-ci.org/nicolasazrak/caddy-cache)
